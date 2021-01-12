@@ -1,0 +1,3 @@
+[submodule "connperf"]
+	path = connperf
+	url = https://github.com/yuuki/connperf.git
