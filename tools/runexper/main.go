@@ -2,10 +2,14 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/process"
 )
 
 const (
@@ -61,25 +65,60 @@ func run() int {
 	return exitCodeOk
 }
 
-func measureStats() {
+type stat struct {
+	CPU      *cpu.TimesStat
+	CPUTotal float64
+}
+
+func (s *stat) Print() {
+	fmt.Printf("%+v\n", s)
+}
+
+func measureStats(pid int, stopTimer *time.Timer) (*stat, error) {
+	proc, err := process.NewProcess(int32(pid))
+	if err != nil {
+		return nil, err
+	}
+
 	tick := time.NewTicker(intervalMeasurement)
 	defer tick.Stop()
+
+	cpuStats := make([]*cpu.TimesStat, 0)
+	cnt := 0
 
 	for {
 		select {
 		case <-tick.C:
-			// measture
+			cpuTimes, err := proc.Times()
+			if err != nil {
+				return nil, err
+			}
+			cpuStats = append(cpuStats, cpuTimes)
+
+			cnt++
+		case <-stopTimer.C:
+			goto END
 		default:
 		}
 	}
-}
+END:
 
-func waitAndKill(proc *os.Process) {
-	timer := time.NewTimer(period)
-	<-timer.C
-	if err := proc.Kill(); err != nil {
-		log.Fatal(err)
+	reportStat := &stat{
+		CPU: &cpu.TimesStat{},
 	}
+
+	// average
+	for _, c := range cpuStats {
+		reportStat.CPU.User += c.User
+		reportStat.CPU.System += c.System
+		reportStat.CPU.Iowait += c.Iowait
+		reportStat.CPUTotal += c.User + c.System + c.Iowait
+	}
+	reportStat.CPUTotal /= float64(cnt)
+	reportStat.CPU.User /= float64(cnt)
+	reportStat.CPU.System /= float64(cnt)
+
+	return reportStat, nil
 }
 
 func runLstf() error {
@@ -88,7 +127,20 @@ func runLstf() error {
 		return err
 	}
 
-	go waitAndKill(cmd.Process)
+	go func() {
+		time.Sleep(period)
+		if err := cmd.Process.Kill(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+	go func() {
+		timer := time.NewTimer(period)
+		stat, err := measureStats(cmd.Process.Pid, timer)
+		if err != nil {
+			log.Fatal(err)
+		}
+		stat.Print()
+	}()
 
 	if err := cmd.Wait(); err != nil {
 		return err
@@ -102,7 +154,12 @@ func runConntopUser() error {
 		return err
 	}
 
-	go waitAndKill(cmd.Process)
+	go func() {
+		time.Sleep(period)
+		if err := cmd.Process.Kill(); err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	// measurement
 
@@ -118,7 +175,12 @@ func runConntopKernel() error {
 		return err
 	}
 
-	go waitAndKill(cmd.Process)
+	go func() {
+		time.Sleep(period)
+		if err := cmd.Process.Kill(); err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	// measurement
 
