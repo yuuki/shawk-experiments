@@ -16,7 +16,7 @@ const (
 	exitCodeOk  = 0
 	exitCodeErr = -1
 
-	methodSnapshotPooling   = "snapshot-pooling"
+	methodSnapshotPooling   = "snapshot-polling"
 	methodUserAggregation   = "user-aggregation"
 	methodKernelAggregation = "kernel-aggregation"
 
@@ -45,17 +45,17 @@ func run() int {
 
 	switch method {
 	case methodSnapshotPooling:
-		if err := runLstf(); err != nil {
+		if err := runCmd("./lstf", "-p", "-n", "--watch=1"); err != nil {
 			log.Println(err)
 			return exitCodeErr
 		}
 	case methodUserAggregation:
-		if err := runConntopUser(); err != nil {
+		if err := runCmd("./conntop", "-streaming"); err != nil {
 			log.Println(err)
 			return exitCodeErr
 		}
 	case methodKernelAggregation:
-		if err := runConntopKernel(); err != nil {
+		if err := runCmd("./conntop", "-interval", "1s"); err != nil {
 			log.Println(err)
 			return exitCodeErr
 		}
@@ -117,70 +117,8 @@ func measureCPUStats(pid int) (*cpuStat, error) {
 	return stat, nil
 }
 
-func runLstf() error {
-	cmd := exec.Command("./lstf", "-p", "-n", "--watch=1")
-	log.Printf("Kicking %q ...\n", strings.Join(cmd.Args, " "))
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	waitChan := make(chan struct{})
-
-	go func() {
-		time.Sleep(period)
-		if err := cmd.Process.Kill(); err != nil {
-			log.Fatal(err)
-		}
-	}()
-	go func() {
-		stat, err := measureCPUStats(cmd.Process.Pid)
-		if err != nil {
-			log.Fatal(err)
-		}
-		stat.PrintReport()
-		waitChan <- struct{}{}
-	}()
-
-	if err := cmd.Wait(); err != nil {
-		return err
-	}
-	<-waitChan
-	return nil
-}
-
-func runConntopUser() error {
-	cmd := exec.Command("./conntop", "-streaming")
-	log.Printf("Kicking %q ...\n", strings.Join(cmd.Args, " "))
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	waitChan := make(chan struct{})
-
-	go func() {
-		time.Sleep(period)
-		if err := cmd.Process.Kill(); err != nil {
-			log.Fatal(err)
-		}
-	}()
-	go func() {
-		stat, err := measureCPUStats(cmd.Process.Pid)
-		if err != nil {
-			log.Fatal(err)
-		}
-		stat.PrintReport()
-		waitChan <- struct{}{}
-	}()
-
-	if err := cmd.Wait(); err != nil {
-		return err
-	}
-	<-waitChan
-	return nil
-}
-
-func runConntopKernel() error {
-	cmd := exec.Command("./conntop", "-interval", "1s")
+func runCmd(name string, arg ...string) error {
+	cmd := exec.Command(name, arg...)
 	log.Printf("Kicking %q ...\n", strings.Join(cmd.Args, " "))
 	if err := cmd.Start(); err != nil {
 		return err
