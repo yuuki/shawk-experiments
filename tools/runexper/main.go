@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -41,6 +42,8 @@ func main() {
 }
 
 func run() int {
+	log.Printf("Running method %q during period %q ...\n", method, period)
+
 	switch method {
 	case methodSnapshotPooling:
 		if err := runLstf(); err != nil {
@@ -123,6 +126,7 @@ END:
 
 func runLstf() error {
 	cmd := exec.Command("./lstf", "-p", "-n", "--watch=1")
+	log.Printf("Kicking %q ...\n", strings.Join(cmd.Args, " "))
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -150,6 +154,7 @@ func runLstf() error {
 
 func runConntopUser() error {
 	cmd := exec.Command("./conntop", "-streaming")
+	log.Printf("Kicking %q ...\n", strings.Join(cmd.Args, " "))
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -171,6 +176,7 @@ func runConntopUser() error {
 
 func runConntopKernel() error {
 	cmd := exec.Command("./conntop", "-interval", "1s")
+	log.Printf("Kicking %q ...\n", strings.Join(cmd.Args, " "))
 	if err := cmd.Start(); err != nil {
 		return err
 	}
