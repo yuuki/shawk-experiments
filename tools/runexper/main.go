@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/process"
 )
 
@@ -68,60 +67,54 @@ func run() int {
 	return exitCodeOk
 }
 
-type stat struct {
-	CPU      *cpu.TimesStat
-	CPUTotal float64
+type cpuStat struct {
+	CPUTotal  float64
+	CPUUser   float64
+	CPUSystem float64
+	CPUIowait float64
 }
 
-func (s *stat) Print() {
-	fmt.Printf("%+v\n", s)
+func (s *cpuStat) PrintReport() {
+	fmt.Println("--- CPU stats ---")
+	fmt.Printf("total:%.2f%% user:%.2f%% system:%.2f%% iowait:%.2f%%\n",
+		s.CPUTotal*100,
+		s.CPUUser*100,
+		s.CPUSystem*100,
+		s.CPUIowait*100,
+	)
 }
 
-func measureStats(pid int, stopTimer *time.Timer) (*stat, error) {
+func measureCPUStats(pid int) (*cpuStat, error) {
 	proc, err := process.NewProcess(int32(pid))
 	if err != nil {
 		return nil, err
 	}
 
-	tick := time.NewTicker(intervalMeasurement)
-	defer tick.Stop()
-
-	cpuStats := make([]*cpu.TimesStat, 0)
-	cnt := 0
-
-	for {
-		select {
-		case <-tick.C:
-			cpuTimes, err := proc.Times()
-			if err != nil {
-				return nil, err
-			}
-			cpuStats = append(cpuStats, cpuTimes)
-
-			cnt++
-		case <-stopTimer.C:
-			goto END
-		default:
-		}
-	}
-END:
-
-	reportStat := &stat{
-		CPU: &cpu.TimesStat{},
+	lastCPUTimes, err := proc.Times()
+	if err != nil {
+		return nil, err
 	}
 
-	// average
-	for _, c := range cpuStats {
-		reportStat.CPU.User += c.User
-		reportStat.CPU.System += c.System
-		reportStat.CPU.Iowait += c.Iowait
-		reportStat.CPUTotal += c.User + c.System + c.Iowait
-	}
-	reportStat.CPUTotal /= float64(cnt)
-	reportStat.CPU.User /= float64(cnt)
-	reportStat.CPU.System /= float64(cnt)
+	time.Sleep(period)
 
-	return reportStat, nil
+	cpuTimes, err := proc.Times()
+	if err != nil {
+		return nil, err
+	}
+
+	deltaCPUUser := cpuTimes.User - lastCPUTimes.User
+	deltaCPUSystem := cpuTimes.System - lastCPUTimes.System
+	deltaCPUIowait := cpuTimes.Iowait - lastCPUTimes.Iowait
+	deltaCPUTotal := deltaCPUUser + deltaCPUSystem + deltaCPUIowait
+
+	stat := &cpuStat{
+		CPUTotal:  deltaCPUTotal / period.Seconds(),
+		CPUUser:   deltaCPUUser / period.Seconds(),
+		CPUSystem: deltaCPUSystem / period.Seconds(),
+		CPUIowait: deltaCPUIowait / period.Seconds(),
+	}
+
+	return stat, nil
 }
 
 func runLstf() error {
@@ -138,12 +131,11 @@ func runLstf() error {
 		}
 	}()
 	go func() {
-		timer := time.NewTimer(period)
-		stat, err := measureStats(cmd.Process.Pid, timer)
+		stat, err := measureCPUStats(cmd.Process.Pid)
 		if err != nil {
 			log.Fatal(err)
 		}
-		stat.Print()
+		stat.PrintReport()
 	}()
 
 	if err := cmd.Wait(); err != nil {
@@ -164,6 +156,13 @@ func runConntopUser() error {
 		if err := cmd.Process.Kill(); err != nil {
 			log.Fatal(err)
 		}
+	}()
+	go func() {
+		stat, err := measureCPUStats(cmd.Process.Pid)
+		if err != nil {
+			log.Fatal(err)
+		}
+		stat.PrintReport()
 	}()
 
 	// measurement
@@ -186,6 +185,13 @@ func runConntopKernel() error {
 		if err := cmd.Process.Kill(); err != nil {
 			log.Fatal(err)
 		}
+	}()
+	go func() {
+		stat, err := measureCPUStats(cmd.Process.Pid)
+		if err != nil {
+			log.Fatal(err)
+		}
+		stat.PrintReport()
 	}()
 
 	// measurement
