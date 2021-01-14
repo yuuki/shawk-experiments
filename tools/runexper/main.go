@@ -124,6 +124,8 @@ func runLstf() error {
 		return err
 	}
 
+	waitChan := make(chan struct{})
+
 	go func() {
 		time.Sleep(period)
 		if err := cmd.Process.Kill(); err != nil {
@@ -136,11 +138,13 @@ func runLstf() error {
 			log.Fatal(err)
 		}
 		stat.PrintReport()
+		waitChan <- struct{}{}
 	}()
 
 	if err := cmd.Wait(); err != nil {
 		return err
 	}
+	<-waitChan
 	return nil
 }
 
@@ -151,6 +155,8 @@ func runConntopUser() error {
 		return err
 	}
 
+	waitChan := make(chan struct{})
+
 	go func() {
 		time.Sleep(period)
 		if err := cmd.Process.Kill(); err != nil {
@@ -163,13 +169,13 @@ func runConntopUser() error {
 			log.Fatal(err)
 		}
 		stat.PrintReport()
+		waitChan <- struct{}{}
 	}()
-
-	// measurement
 
 	if err := cmd.Wait(); err != nil {
 		return err
 	}
+	<-waitChan
 	return nil
 }
 
@@ -180,6 +186,8 @@ func runConntopKernel() error {
 		return err
 	}
 
+	waitChan := make(chan struct{})
+
 	go func() {
 		time.Sleep(period)
 		if err := cmd.Process.Kill(); err != nil {
@@ -192,12 +200,12 @@ func runConntopKernel() error {
 			log.Fatal(err)
 		}
 		stat.PrintReport()
+		waitChan <- struct{}{}
 	}()
-
-	// measurement
 
 	if err := cmd.Wait(); err != nil {
 		return err
 	}
+	<-waitChan
 	return nil
 }
