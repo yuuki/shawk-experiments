@@ -17,7 +17,7 @@ const (
 	exitCodeOk  = 0
 	exitCodeErr = -1
 
-	methodSnapshotPooling   = "snapshot-polling"
+	methodSnapshotPolling   = "snapshot-polling"
 	methodUserAggregation   = "user-aggregation"
 	methodKernelAggregation = "kernel-aggregation"
 	methodAll               = "all"
@@ -30,7 +30,7 @@ var (
 	period time.Duration
 
 	cmdByMethod = map[string][]string{
-		methodSnapshotPooling:   []string{"./lstf", "-p", "-n", "--watch=1"},
+		methodSnapshotPolling:   []string{"./lstf", "-p", "-n", "--watch=1"},
 		methodUserAggregation:   []string{"./conntop", "-streaming"},
 		methodKernelAggregation: []string{"./conntop", "-interval", "1s"},
 	}
@@ -52,8 +52,8 @@ func run() int {
 	log.Printf("Running method %q during period %q ...\n", method, period)
 
 	switch method {
-	case methodSnapshotPooling:
-		if err := runCmd(cmdByMethod[methodSnapshotPooling]); err != nil {
+	case methodSnapshotPolling:
+		if err := runCmd(cmdByMethod[methodSnapshotPolling]); err != nil {
 			log.Println(err)
 			return exitCodeErr
 		}
@@ -68,8 +68,8 @@ func run() int {
 			return exitCodeErr
 		}
 	case methodAll:
-		log.Printf("Running method %q during period %q ...\n", methodSnapshotPooling, period)
-		if err := runCmd(cmdByMethod[methodSnapshotPooling]); err != nil {
+		log.Printf("Running method %q during period %q ...\n", methodSnapshotPolling, period)
+		if err := runCmd(cmdByMethod[methodSnapshotPolling]); err != nil {
 			log.Println(err)
 			return exitCodeErr
 		}
