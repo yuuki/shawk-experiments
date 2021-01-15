@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -19,6 +20,7 @@ const (
 	methodSnapshotPooling   = "snapshot-polling"
 	methodUserAggregation   = "user-aggregation"
 	methodKernelAggregation = "kernel-aggregation"
+	methodAll               = "all"
 
 	intervalMeasurement = 1 * time.Second
 )
@@ -26,6 +28,12 @@ const (
 var (
 	method string
 	period time.Duration
+
+	cmdByMethod = map[string][]string{
+		methodSnapshotPooling:   []string{"./lstf", "-p", "-n", "--watch=1"},
+		methodUserAggregation:   []string{"./conntop", "-streaming"},
+		methodKernelAggregation: []string{"./conntop", "-interval", "1s"},
+	}
 )
 
 func init() {
@@ -45,17 +53,33 @@ func run() int {
 
 	switch method {
 	case methodSnapshotPooling:
-		if err := runCmd("./lstf", "-p", "-n", "--watch=1"); err != nil {
+		if err := runCmd(cmdByMethod[methodSnapshotPooling]); err != nil {
 			log.Println(err)
 			return exitCodeErr
 		}
 	case methodUserAggregation:
-		if err := runCmd("./conntop", "-streaming"); err != nil {
+		if err := runCmd(cmdByMethod[methodUserAggregation]); err != nil {
 			log.Println(err)
 			return exitCodeErr
 		}
 	case methodKernelAggregation:
-		if err := runCmd("./conntop", "-interval", "1s"); err != nil {
+		if err := runCmd(cmdByMethod[methodKernelAggregation]); err != nil {
+			log.Println(err)
+			return exitCodeErr
+		}
+	case methodAll:
+		log.Printf("Running method %q during period %q ...\n", methodSnapshotPooling, period)
+		if err := runCmd(cmdByMethod[methodSnapshotPooling]); err != nil {
+			log.Println(err)
+			return exitCodeErr
+		}
+		log.Printf("Running method %q during period %q ...\n", methodUserAggregation, period)
+		if err := runCmd(cmdByMethod[methodUserAggregation]); err != nil {
+			log.Println(err)
+			return exitCodeErr
+		}
+		log.Printf("Running method %q during period %q ...\n", methodKernelAggregation, period)
+		if err := runCmd(cmdByMethod[methodKernelAggregation]); err != nil {
 			log.Println(err)
 			return exitCodeErr
 		}
@@ -117,8 +141,12 @@ func measureCPUStats(pid int) (*cpuStat, error) {
 	return stat, nil
 }
 
-func runCmd(name string, arg ...string) error {
-	cmd := exec.Command(name, arg...)
+func runCmd(args []string) error {
+	if len(args) == 0 {
+		return errors.New("args length should be > 0")
+	}
+
+	cmd := exec.Command(args[0], args[1:]...)
 	log.Printf("Kicking %q ...\n", strings.Join(cmd.Args, " "))
 	if err := cmd.Start(); err != nil {
 		return err
