@@ -31,8 +31,8 @@ var (
 
 	cmdByMethod = map[string][]string{
 		methodSnapshotPolling:   []string{"./lstf", "-p", "-n", "--watch=1"},
-		methodUserAggregation:   []string{"./conntop", "-streaming"},
-		methodKernelAggregation: []string{"./conntop", "-interval", "1s"},
+		methodUserAggregation:   []string{"./conntop", "-user-aggr", "-interval", "1s"},
+		methodKernelAggregation: []string{"./conntop", "-kernel-aggr", "-interval", "1s"},
 	}
 )
 
