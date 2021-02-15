@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -73,6 +74,8 @@ func run() int {
 		log.Printf("Received %v, Goodbye\n", ret)
 		cancel()
 	}()
+
+	go serveHTTP()
 
 	if err := spawnContainers(ctx); err != nil {
 		log.Printf("%v\n", err)
@@ -170,6 +173,53 @@ func spawn(ctx context.Context, cli *client.Client, i int) error {
 	}
 
 	return nil
+}
+
+func getContainerHostPorts(cli *client.Client) ([]string, error) {
+	ctx := context.Background()
+	ctnrs, err := cli.ContainerList(ctx, types.ContainerListOptions{})
+	if err != nil {
+		return []string{}, xerrors.Errorf("failed to list container: %w", err)
+	}
+	uniqPorts := make(map[string]struct{})
+	for _, ctnr := range ctnrs {
+		resp, err := cli.ContainerInspect(ctx, ctnr.ID)
+		if err != nil {
+			return []string{}, xerrors.Errorf(
+				"failed to inspect container (%q): %w", ctnr.ID, err)
+		}
+		for _, portBindings := range resp.NetworkSettings.Ports {
+			for _, pb := range portBindings {
+				uniqPorts[pb.HostPort] = struct{}{}
+			}
+		}
+	}
+	ports := make([]string, 0, len(uniqPorts))
+	for hp := range uniqPorts {
+		ports = append(ports, hp)
+	}
+	return ports, nil
+}
+
+func serveHTTP() {
+	cli, err := client.NewEnvClient()
+	if err != nil {
+		xerrors.Errorf("could not create docker client: %w", err)
+	}
+	http.HandleFunc("/hostports", func(w http.ResponseWriter, req *http.Request) {
+		ports, err := getContainerHostPorts(cli)
+		if err != nil {
+			log.Println(err)
+			io.WriteString(w, err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		for _, port := range ports {
+			io.WriteString(w, port+"\n")
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 func main() {
