@@ -18,6 +18,7 @@ require (
 	github.com/opencontainers/image-spec v1.0.1 // indirect
 	github.com/shirou/gopsutil/v3 v3.20.12
 	github.com/sirupsen/logrus v1.7.0 // indirect
+	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
 	golang.org/x/sys v0.0.0-20210113181707-4bcb84eeeb78 // indirect
 	golang.org/x/time v0.0.0-20201208040808-7e3f01d25324 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1

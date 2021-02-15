@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
 
@@ -57,7 +60,20 @@ func run() int {
 		return exitCodeErr
 	}
 
-	if err := spawnContainers(flavor); err != nil {
+	sig := make(chan os.Signal, 1)
+	defer close(sig)
+	signal.Notify(sig, os.Interrupt, os.Kill)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		ret := <-sig
+		log.Printf("Received %v, Goodbye\n", ret)
+		cancel()
+	}()
+
+	if err := spawnContainers(ctx, flavor); err != nil {
 		log.Printf("%v\n", err)
 		return exitCodeErr
 	}
@@ -65,13 +81,11 @@ func run() int {
 	return exitCodeOk
 }
 
-func spawnContainers(flavor string) error {
+func spawnContainers(ctx context.Context, flavor string) error {
 	cli, err := client.NewEnvClient()
 	if err != nil {
 		xerrors.Errorf("could not create docker client: %w", err)
 	}
-
-	ctx := context.Background()
 
 	if _, err := cli.Ping(ctx); err != nil {
 		return xerrors.Errorf("could not ping docker: %w", err)
@@ -85,13 +99,15 @@ func spawnContainers(flavor string) error {
 	io.Copy(os.Stdout, reader)
 
 	log.Printf("--> Spawning '%d' containers\n", containers)
+
+	eg, ctx := errgroup.WithContext(ctx)
 	for i := 0; i < containers; i++ {
-		if err := spawn(ctx, cli, flavor); err != nil {
-			return err
-		}
+		eg.Go(func() error {
+			return spawn(ctx, cli, flavor)
+		})
 	}
 
-	return nil
+	return eg.Wait()
 }
 
 func spawn(ctx context.Context, cli *client.Client, flavor string) error {
@@ -114,7 +130,7 @@ func spawn(ctx context.Context, cli *client.Client, flavor string) error {
 	}, nil, nil, nil, "")
 
 	defer func() {
-		err = cli.ContainerRemove(ctx, resp.ID, types.ContainerRemoveOptions{
+		err = cli.ContainerRemove(context.Background(), resp.ID, types.ContainerRemoveOptions{
 			Force: true,
 		})
 		if err != nil {
@@ -131,6 +147,9 @@ func spawn(ctx context.Context, cli *client.Client, flavor string) error {
 	select {
 	case err := <-errCh:
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				break
+			}
 			return xerrors.Errorf("failed to wait container: %w", err)
 		}
 	case <-statusCh:
