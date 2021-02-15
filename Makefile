@@ -1,11 +1,8 @@
-TOOL = runexper
+TOOLS = runexper spawnctnr
 GO_SRC := $(shell find . -type f -name '*.go')
 
 .PHONY: all
-all: build
+all: $(TOOLS)
 
-.PHONY: build
-build: $(TOOL)
-
-$(TOOL): $(GO_SRC)
-	go build -o $(TOOL) ./tools/$@
+$(TOOLS): %: $(GO_SRC)
+	go build -o $@ ./tools/$@
