@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"time"
 
@@ -198,6 +199,7 @@ func getContainerHostPorts(cli *client.Client) ([]string, error) {
 	for hp := range uniqPorts {
 		ports = append(ports, hp)
 	}
+	sort.Strings(ports)
 	return ports, nil
 }
 
