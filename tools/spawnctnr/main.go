@@ -24,6 +24,7 @@ const (
 
 	connperfImage    = "docker.pkg.github.com/yuuki/connperf/connperf:latest"
 	defaultClientCmd = "connect --proto tcp --type ephemeral --rate 1000"
+	defaultServerCmd = "serve -l 0.0.0.0:9100"
 )
 
 var (
@@ -40,7 +41,8 @@ func init() {
 	flag.StringVar(&flavor, "flavor", defaultFlavor, "flavor ('client', 'server')")
 	flag.DurationVar(&period, "period", defaultPeriod, "period")
 	flag.IntVar(&containers, "containers", defaultContainers, "the number of containers")
-	flag.StringVar(&clientCmd, "clientCmd", defaultClientCmd, "client command line option")
+	flag.StringVar(&clientCmd, "client-cmd", defaultClientCmd, "connperf client command line option")
+	flag.StringVar(&serverCmd, "server-cmd", defaultServerCmd, "connperf server command line option")
 	flag.Parse()
 }
 
@@ -73,12 +75,12 @@ func spawnContainers(flavor string) error {
 		return xerrors.Errorf("could not ping docker: %w", err)
 	}
 
-	log.Println("--> Pulling %q", connperfImage)
+	log.Printf("--> Pulling %q\n", connperfImage)
 	if _, err = cli.ImagePull(ctx, connperfImage, types.ImagePullOptions{}); err != nil {
 		return xerrors.Errorf("could not pull %q: %w", connperfImage, err)
 	}
 
-	log.Println("--> Spawning '%d' containers", containers)
+	log.Printf("--> Spawning '%d' containers\n", containers)
 
 	for i := 0; i < containers; i++ {
 		if err := spawn(ctx, cli, flavor); err != nil {
