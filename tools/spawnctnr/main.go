@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -76,7 +77,11 @@ func run() int {
 		cancel()
 	}()
 
-	go serveHTTP()
+	go func() {
+		if err := serveHTTP(); err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	if err := spawnContainers(ctx); err != nil {
 		log.Printf("%v\n", err)
@@ -176,7 +181,7 @@ func spawn(ctx context.Context, cli *client.Client, i int) error {
 	return nil
 }
 
-func getContainerHostPorts(cli *client.Client) ([]string, error) {
+func getContainerHostPorts(cli *client.Client, localip string) ([]string, error) {
 	ctx := context.Background()
 	ctnrs, err := cli.ContainerList(ctx, types.ContainerListOptions{})
 	if err != nil {
@@ -191,7 +196,8 @@ func getContainerHostPorts(cli *client.Client) ([]string, error) {
 		}
 		for _, portBindings := range resp.NetworkSettings.Ports {
 			for _, pb := range portBindings {
-				uniqPorts[pb.HostPort] = struct{}{}
+				port := localip + ":" + pb.HostPort
+				uniqPorts[port] = struct{}{}
 			}
 		}
 	}
@@ -203,25 +209,52 @@ func getContainerHostPorts(cli *client.Client) ([]string, error) {
 	return ports, nil
 }
 
-func serveHTTP() {
+// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
+func getLocalIP() (string, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "", xerrors.Errorf("failed to get interface addrs: %w", err)
+	}
+	for _, address := range addrs {
+		// check the address type and if it is not a loopback the display it
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String(), nil
+			}
+		}
+	}
+	return "", nil
+}
+
+func serveHTTP() error {
 	cli, err := client.NewEnvClient()
 	if err != nil {
-		xerrors.Errorf("could not create docker client: %w", err)
+		return xerrors.Errorf("could not create docker client: %w", err)
 	}
+
+	localip, err := getLocalIP()
+	if err != nil {
+		return err
+	}
+	if localip == "" {
+		return xerrors.Errorf("empty local ip: %w", err)
+	}
+
 	http.HandleFunc("/hostports", func(w http.ResponseWriter, req *http.Request) {
-		ports, err := getContainerHostPorts(cli)
+		ports, err := getContainerHostPorts(cli, localip)
 		if err != nil {
 			log.Println(err)
 			io.WriteString(w, err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		w.WriteHeader(http.StatusOK)
 		for _, port := range ports {
 			io.WriteString(w, port+"\n")
 		}
-		w.WriteHeader(http.StatusOK)
 	})
 	log.Fatal(http.ListenAndServe(":8080", nil))
+	return nil
 }
 
 func main() {
