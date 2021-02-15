@@ -129,7 +129,16 @@ func spawn(ctx context.Context, cli *client.Client, i int) error {
 		Cmd:          cmd,
 		Tty:          false,
 		ExposedPorts: portSet,
-	}, nil, nil, nil, fmt.Sprintf("connperf-%s-%04d", flavor, i))
+	}, &container.HostConfig{
+		PortBindings: nat.PortMap{
+			tcp: []nat.PortBinding{
+				{HostIP: "0.0.0.0"},
+			},
+			udp: []nat.PortBinding{
+				{HostIP: "0.0.0.0"},
+			},
+		},
+	}, nil, nil, fmt.Sprintf("connperf-%s-%04d", flavor, i))
 	if err != nil {
 		return xerrors.Errorf("failed to create container: %w", err)
 	}
