@@ -22,7 +22,7 @@ const (
 	defaultPeriod     = 60 * time.Second
 	defaultContainers = 10
 
-	connperfImage    = "docker.pkg.github.com/yuuki/connperf/connperf:latest"
+	connperfImage    = "ghcr.io/yuuki/connperf:latest"
 	defaultClientCmd = "connect --proto tcp --type ephemeral --rate 1000"
 	defaultServerCmd = "serve -l 0.0.0.0:9100"
 )
@@ -81,7 +81,6 @@ func spawnContainers(flavor string) error {
 	}
 
 	log.Printf("--> Spawning '%d' containers\n", containers)
-
 	for i := 0; i < containers; i++ {
 		if err := spawn(ctx, cli, flavor); err != nil {
 			return err
@@ -99,15 +98,13 @@ func spawn(ctx context.Context, cli *client.Client, flavor string) error {
 	case "server":
 		cmd = strings.Split(serverCmd, " ")
 	}
+
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image: connperfImage,
 		Cmd:   cmd,
 		Tty:   false,
 	}, nil, nil, nil, "")
-	err = cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
-	if err != nil {
-		return xerrors.Errorf("failed to start container: %w", err)
-	}
+
 	defer func() {
 		err = cli.ContainerRemove(ctx, resp.ID, types.ContainerRemoveOptions{
 			Force: true,
@@ -116,6 +113,11 @@ func spawn(ctx context.Context, cli *client.Client, flavor string) error {
 			log.Printf("failed to remove container: %s\n", err)
 		}
 	}()
+
+	err = cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
+	if err != nil {
+		return xerrors.Errorf("failed to start container: %w", err)
+	}
 
 	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
 	select {
