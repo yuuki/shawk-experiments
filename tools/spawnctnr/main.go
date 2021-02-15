@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	"golang.org/x/xerrors"
 )
 
@@ -76,9 +78,11 @@ func spawnContainers(flavor string) error {
 	}
 
 	log.Printf("--> Pulling %q\n", connperfImage)
-	if _, err = cli.ImagePull(ctx, connperfImage, types.ImagePullOptions{}); err != nil {
+	reader, err := cli.ImagePull(ctx, connperfImage, types.ImagePullOptions{})
+	if err != nil {
 		return xerrors.Errorf("could not pull %q: %w", connperfImage, err)
 	}
+	io.Copy(os.Stdout, reader)
 
 	log.Printf("--> Spawning '%d' containers\n", containers)
 	for i := 0; i < containers; i++ {
@@ -99,10 +103,14 @@ func spawn(ctx context.Context, cli *client.Client, flavor string) error {
 		cmd = strings.Split(serverCmd, " ")
 	}
 
+	tcp, _ := nat.NewPort("tcp", "9100")
+	udp, _ := nat.NewPort("udp", "9100")
+	portSet := nat.PortSet{tcp: struct{}{}, udp: struct{}{}}
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image: connperfImage,
-		Cmd:   cmd,
-		Tty:   false,
+		Image:        connperfImage,
+		Cmd:          cmd,
+		Tty:          false,
+		ExposedPorts: portSet,
 	}, nil, nil, nil, "")
 
 	defer func() {
