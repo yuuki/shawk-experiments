@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -73,7 +74,7 @@ func run() int {
 		cancel()
 	}()
 
-	if err := spawnContainers(ctx, flavor); err != nil {
+	if err := spawnContainers(ctx); err != nil {
 		log.Printf("%v\n", err)
 		return exitCodeErr
 	}
@@ -81,7 +82,7 @@ func run() int {
 	return exitCodeOk
 }
 
-func spawnContainers(ctx context.Context, flavor string) error {
+func spawnContainers(ctx context.Context) error {
 	cli, err := client.NewEnvClient()
 	if err != nil {
 		xerrors.Errorf("could not create docker client: %w", err)
@@ -102,15 +103,16 @@ func spawnContainers(ctx context.Context, flavor string) error {
 
 	eg, ctx := errgroup.WithContext(ctx)
 	for i := 0; i < containers; i++ {
+		i := i
 		eg.Go(func() error {
-			return spawn(ctx, cli, flavor)
+			return spawn(ctx, cli, i)
 		})
 	}
 
 	return eg.Wait()
 }
 
-func spawn(ctx context.Context, cli *client.Client, flavor string) error {
+func spawn(ctx context.Context, cli *client.Client, i int) error {
 	var cmd []string
 	switch flavor {
 	case "client":
@@ -127,7 +129,10 @@ func spawn(ctx context.Context, cli *client.Client, flavor string) error {
 		Cmd:          cmd,
 		Tty:          false,
 		ExposedPorts: portSet,
-	}, nil, nil, nil, "")
+	}, nil, nil, nil, fmt.Sprintf("connperf-%s-%04d", flavor, i))
+	if err != nil {
+		return xerrors.Errorf("failed to create container: %w", err)
+	}
 
 	defer func() {
 		err = cli.ContainerRemove(context.Background(), resp.ID, types.ContainerRemoveOptions{
