@@ -153,6 +153,7 @@ func runCPULoad(ctx context.Context) error {
 	// - ephemeral
 	for _, rate := range []int{5000, 10000, 15000, 20000} {
 		flag := fmt.Sprintf("—-proto tcp —-flavor ephemeral —-rate %d", rate)
+		log.Println("parameter", flag)
 		if err := runCPULoadEach(ctx, flag); err != nil {
 			return err
 		}
@@ -161,6 +162,7 @@ func runCPULoad(ctx context.Context) error {
 	// - persistent
 	for _, conns := range []int{5000, 10000, 15000, 20000} {
 		flag := fmt.Sprintf("—-proto tcp —-flavor persistent —-connections %d", conns)
+		log.Println("parameter", flag)
 		if err := runCPULoadEach(ctx, flag); err != nil {
 			return err
 		}
@@ -190,6 +192,8 @@ func run() int {
 		log.Printf("Received %v, Goodbye\n", ret)
 		cancel()
 	}()
+
+	log.Printf("Running with a flavor of %q\n", experFlavor)
 
 	var err error
 	switch experFlavor {
