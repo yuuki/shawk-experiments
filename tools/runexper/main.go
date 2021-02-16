@@ -28,7 +28,7 @@ const (
 	experFlavorLatency = "latency"
 
 	connperfServerCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf serve -l 0.0.0.0:9100"
-	connperfClientCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect %s —-duration 60s 10.0.150.2:9100"
+	connperfClientCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect —-duration 60s %s 10.0.150.2:9100"
 	runTracerCmd      = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -period 10s -method all"
 )
 
@@ -118,7 +118,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 		w := bufio.NewWriter(os.Stdout)
 		s := bufio.NewScanner(out3)
 		for s.Scan() {
-			fmt.Fprintln(w, s.Text())
+			fmt.Fprintln(w, "\t", defaultServerHost, "-->", s.Text())
 		}
 		w.Flush()
 	}()
@@ -137,7 +137,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 		w := bufio.NewWriter(os.Stdout)
 		s := bufio.NewScanner(out4)
 		for s.Scan() {
-			fmt.Fprintln(w, s.Text())
+			fmt.Fprintln(w, "\t", defaultClientHost, "-->", s.Text())
 		}
 		w.Flush()
 	}()
