@@ -1,4 +1,4 @@
-TOOLS = runexper spawnctnr
+TOOLS = runtracer spawnctnr
 GO_SRC := $(shell find . -type f -name '*.go')
 
 .PHONY: all
