@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
+	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -39,29 +42,33 @@ func init() {
 	flag.StringVar(&experFlavor, "-exper-flavor", experFlavorCPULoad, "experiment flavor")
 }
 
-func sshCmd(ctx context.Context, host string, args []string) (*exec.Cmd, error) {
+func sshCmd(ctx context.Context, host string, args []string) (*exec.Cmd, io.ReadCloser, error) {
 	if len(args) < 1 {
-		return nil, errors.New("args length should be > 0")
+		return nil, nil, errors.New("args length should be > 0")
 	}
 	host = defaultHostUser + "@" + host
 	cmd := exec.CommandContext(ctx, "ssh",
 		append([]string{"-t", host}, args...)...)
-	if err := cmd.Start(); err != nil {
-		return nil, err
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, err
 	}
-	return cmd, nil
+	if err := cmd.Start(); err != nil {
+		return nil, nil, err
+	}
+	return cmd, stdout, nil
 }
 
-func sshClientCmd(ctx context.Context, args []string) (*exec.Cmd, error) {
+func sshClientCmd(ctx context.Context, args []string) (*exec.Cmd, io.ReadCloser, error) {
 	return sshCmd(ctx, defaultClientHost, args)
 }
 
-func sshServerCmd(ctx context.Context, args []string) (*exec.Cmd, error) {
+func sshServerCmd(ctx context.Context, args []string) (*exec.Cmd, io.ReadCloser, error) {
 	return sshCmd(ctx, defaultServerHost, args)
 }
 
 func runCPULoad(ctx context.Context) error {
-	cmd1, err := sshServerCmd(ctx, strings.Fields(connperfServerCmd))
+	cmd1, _, err := sshServerCmd(ctx, strings.Fields(connperfServerCmd))
 	if err != nil {
 		return err
 	}
@@ -76,7 +83,7 @@ func runCPULoad(ctx context.Context) error {
 	// wait server
 	time.Sleep(1 * time.Second)
 
-	cmd2, err := sshClientCmd(ctx, strings.Fields(connperfClientCmd))
+	cmd2, _, err := sshClientCmd(ctx, strings.Fields(connperfClientCmd))
 	if err != nil {
 		return err
 	}
@@ -93,7 +100,7 @@ func runCPULoad(ctx context.Context) error {
 
 	var wg sync.WaitGroup
 
-	cmd3, err := sshServerCmd(ctx, strings.Fields(runTracerCmd))
+	cmd3, out3, err := sshServerCmd(ctx, strings.Fields(runTracerCmd))
 	if err != nil {
 		return err
 	}
@@ -106,8 +113,14 @@ func runCPULoad(ctx context.Context) error {
 			return
 		}
 	}()
+	go func() {
+		s := bufio.NewScanner(out3)
+		for s.Scan() {
+			fmt.Println(s.Text())
+		}
+	}()
 
-	cmd4, err := sshClientCmd(ctx, strings.Fields(runTracerCmd))
+	cmd4, out4, err := sshClientCmd(ctx, strings.Fields(runTracerCmd))
 	if err != nil {
 		return err
 	}
@@ -118,6 +131,12 @@ func runCPULoad(ctx context.Context) error {
 		if err := cmd4.Wait(); err != nil {
 			log.Println(err)
 			return
+		}
+	}()
+	go func() {
+		s := bufio.NewScanner(out4)
+		for s.Scan() {
+			fmt.Println(s.Text())
 		}
 	}()
 
