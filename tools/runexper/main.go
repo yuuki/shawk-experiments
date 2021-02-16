@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -42,58 +41,56 @@ func init() {
 	flag.StringVar(&experFlavor, "-exper-flavor", experFlavorCPULoad, "experiment flavor")
 }
 
-func sshCmd(ctx context.Context, host string, args []string) (*exec.Cmd, io.ReadCloser, error) {
-	if len(args) < 1 {
-		return nil, nil, errors.New("args length should be > 0")
-	}
-	host = defaultHostUser + "@" + host
-	cmd := exec.CommandContext(ctx, "ssh",
-		append([]string{"-t", host}, args...)...)
-	stdout, err := cmd.StdoutPipe()
+func sshCmd(ctx context.Context, host string, cmd string) (*exec.Cmd, io.ReadCloser, error) {
+	sshCmd := strings.Fields(
+		fmt.Sprintf("ssh -tt %s@%s %s", defaultHostUser, host, cmd),
+	)
+	c := exec.CommandContext(ctx, sshCmd[0], sshCmd[1:]...)
+	stdout, err := c.StdoutPipe()
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := cmd.Start(); err != nil {
+	if err := c.Start(); err != nil {
 		return nil, nil, err
 	}
-	return cmd, stdout, nil
+	return c, stdout, nil
 }
 
-func sshClientCmd(ctx context.Context, args []string) (*exec.Cmd, io.ReadCloser, error) {
-	return sshCmd(ctx, defaultClientHost, args)
+func sshClientCmd(ctx context.Context, cmd string) (*exec.Cmd, io.ReadCloser, error) {
+	return sshCmd(ctx, defaultClientHost, cmd)
 }
 
-func sshServerCmd(ctx context.Context, args []string) (*exec.Cmd, io.ReadCloser, error) {
-	return sshCmd(ctx, defaultServerHost, args)
+func sshServerCmd(ctx context.Context, cmd string) (*exec.Cmd, io.ReadCloser, error) {
+	return sshCmd(ctx, defaultServerHost, cmd)
 }
 
 func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
-	cmd1, _, err := sshServerCmd(ctx, strings.Fields(connperfServerCmd))
+	wait1 := make(chan struct{})
+	cmd1, _, err := sshServerCmd(ctx, connperfServerCmd)
 	if err != nil {
 		return err
 	}
-	defer cmd1.Process.Signal(os.Interrupt)
 	go func() {
 		if err := cmd1.Wait(); err != nil {
-			log.Println(err)
-			return
+			log.Println(defaultServerHost, connperfServerCmd, err)
 		}
+		wait1 <- struct{}{}
 	}()
 
 	// wait server
 	time.Sleep(1 * time.Second)
 
+	wait2 := make(chan struct{})
 	clientCmd := fmt.Sprintf(connperfClientCmd, connperfClientFlag)
-	cmd2, _, err := sshClientCmd(ctx, strings.Fields(clientCmd))
+	cmd2, _, err := sshClientCmd(ctx, clientCmd)
 	if err != nil {
 		return err
 	}
-	defer cmd2.Process.Signal(os.Interrupt)
 	go func() {
 		if err := cmd2.Wait(); err != nil {
-			log.Println(err)
-			return
+			log.Println(defaultClientHost, connperfClientCmd, err)
 		}
+		wait2 <- struct{}{}
 	}()
 
 	// wait client
@@ -101,7 +98,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 
 	var wg sync.WaitGroup
 
-	cmd3, out3, err := sshServerCmd(ctx, strings.Fields(runTracerCmd))
+	cmd3, out3, err := sshServerCmd(ctx, runTracerCmd)
 	if err != nil {
 		return err
 	}
@@ -110,8 +107,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	go func() {
 		defer wg.Done()
 		if err := cmd3.Wait(); err != nil {
-			log.Println(err)
-			return
+			log.Println(defaultServerHost, runTracerCmd, err)
 		}
 	}()
 	go func() {
@@ -122,7 +118,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 		}
 	}()
 
-	cmd4, out4, err := sshClientCmd(ctx, strings.Fields(runTracerCmd))
+	cmd4, out4, err := sshClientCmd(ctx, runTracerCmd)
 	if err != nil {
 		return err
 	}
@@ -131,8 +127,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	go func() {
 		defer wg.Done()
 		if err := cmd4.Wait(); err != nil {
-			log.Println(err)
-			return
+			log.Println(defaultClientHost, runTracerCmd, err)
 		}
 	}()
 	go func() {
@@ -144,6 +139,14 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 
 	// wait until tracer has finished
 	wg.Wait()
+
+	cmd1.Process.Signal(os.Interrupt)
+	cmd2.Process.Signal(os.Interrupt)
+	select {
+	case <-wait1:
+	case <-wait2:
+	default:
+	}
 
 	return nil
 }
