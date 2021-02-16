@@ -116,6 +116,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 		for s.Scan() {
 			fmt.Fprintln(w, s.Text())
 		}
+		w.Flush()
 	}()
 
 	cmd4, out4, err := sshClientCmd(ctx, runTracerCmd)
@@ -131,10 +132,12 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 		}
 	}()
 	go func() {
+		w := bufio.NewWriter(os.Stdout)
 		s := bufio.NewScanner(out4)
 		for s.Scan() {
-			fmt.Println(s.Text())
+			fmt.Fprintln(w, s.Text())
 		}
+		w.Flush()
 	}()
 
 	// wait until tracer has finished
