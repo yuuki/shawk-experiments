@@ -72,7 +72,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	if err != nil {
 		return err
 	}
-	defer cmd1.Process.Kill()
+	defer cmd1.Process.Signal(os.Interrupt)
 	go func() {
 		if err := cmd1.Wait(); err != nil {
 			log.Println(err)
@@ -88,7 +88,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	if err != nil {
 		return err
 	}
-	defer cmd2.Process.Kill()
+	defer cmd2.Process.Signal(os.Interrupt)
 	go func() {
 		if err := cmd2.Wait(); err != nil {
 			log.Println(err)
@@ -105,7 +105,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	if err != nil {
 		return err
 	}
-	defer cmd3.Process.Kill()
+	defer cmd3.Process.Signal(os.Interrupt)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -126,7 +126,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	if err != nil {
 		return err
 	}
-	defer cmd4.Process.Kill()
+	defer cmd4.Process.Signal(os.Interrupt)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
