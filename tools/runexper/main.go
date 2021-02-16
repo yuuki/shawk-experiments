@@ -28,7 +28,7 @@ const (
 	experFlavorLatency = "latency"
 
 	connperfServerCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf serve -l 0.0.0.0:9100"
-	connperfClientCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect —-proto tcp —-flavor ephemeral —-rate 1000 —-duration 60s 10.0.150.2:9100"
+	connperfClientCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect %s —-duration 60s 10.0.150.2:9100"
 	runTracerCmd      = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -period 10s -method all"
 )
 
@@ -67,7 +67,7 @@ func sshServerCmd(ctx context.Context, args []string) (*exec.Cmd, io.ReadCloser,
 	return sshCmd(ctx, defaultServerHost, args)
 }
 
-func runCPULoad(ctx context.Context) error {
+func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	cmd1, _, err := sshServerCmd(ctx, strings.Fields(connperfServerCmd))
 	if err != nil {
 		return err
@@ -83,7 +83,8 @@ func runCPULoad(ctx context.Context) error {
 	// wait server
 	time.Sleep(1 * time.Second)
 
-	cmd2, _, err := sshClientCmd(ctx, strings.Fields(connperfClientCmd))
+	clientCmd := fmt.Sprintf(connperfClientCmd, connperfClientFlag)
+	cmd2, _, err := sshClientCmd(ctx, strings.Fields(clientCmd))
 	if err != nil {
 		return err
 	}
@@ -114,9 +115,10 @@ func runCPULoad(ctx context.Context) error {
 		}
 	}()
 	go func() {
+		w := bufio.NewWriter(os.Stdout)
 		s := bufio.NewScanner(out3)
 		for s.Scan() {
-			fmt.Println(s.Text())
+			fmt.Fprintln(w, s.Text())
 		}
 	}()
 
@@ -142,6 +144,35 @@ func runCPULoad(ctx context.Context) error {
 
 	// wait until tracer has finished
 	wg.Wait()
+
+	return nil
+}
+
+func runCPULoad(ctx context.Context) error {
+	// tcp
+	// - ephemeral
+	for _, rate := range []int{5000, 10000, 15000, 20000} {
+		flag := fmt.Sprintf("—-proto tcp —-flavor ephemeral —-rate %d", rate)
+		if err := runCPULoadEach(ctx, flag); err != nil {
+			return err
+		}
+	}
+	// tcp
+	// - persistent
+	for _, conns := range []int{5000, 10000, 15000, 20000} {
+		flag := fmt.Sprintf("—-proto tcp —-flavor persistent —-connections %d", conns)
+		if err := runCPULoadEach(ctx, flag); err != nil {
+			return err
+		}
+	}
+
+	// udp
+	for _, rate := range []int{5000, 10000, 15000, 20000} {
+		flag := fmt.Sprintf("—-proto udp —-rate %d", rate)
+		if err := runCPULoadEach(ctx, flag); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
