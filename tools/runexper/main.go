@@ -44,9 +44,11 @@ func init() {
 
 func sshCmd(ctx context.Context, host string, cmd string) (*exec.Cmd, io.ReadCloser, error) {
 	sshCmd := strings.Fields(
-		fmt.Sprintf("ssh -tt %s@%s %s", defaultHostUser, host, cmd),
+		fmt.Sprintf("ssh -tt %s@%s", defaultHostUser, host),
 	)
+	sshCmd = append(sshCmd, cmd)
 	c := exec.CommandContext(ctx, sshCmd[0], sshCmd[1:]...)
+	log.Println(c.Args)
 	stdout, err := c.StdoutPipe()
 	if err != nil {
 		return nil, nil, err
@@ -85,7 +87,7 @@ func printCmdOut(in io.Reader, host string) {
 
 func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	wait1 := make(chan struct{})
-	cmd1, _, err := sshServerCmd(ctx, connperfServerCmd)
+	cmd1, out1, err := sshServerCmd(ctx, connperfServerCmd)
 	if err != nil {
 		return err
 	}
@@ -93,20 +95,22 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 		waitCmd(cmd1, defaultServerHost, connperfServerCmd)
 		wait1 <- struct{}{}
 	}()
+	go printCmdOut(out1, defaultServerHost)
 
 	// wait server
 	time.Sleep(1 * time.Second)
 
 	wait2 := make(chan struct{})
 	clientCmd := fmt.Sprintf(connperfClientCmd, connperfClientFlag)
-	cmd2, _, err := sshClientCmd(ctx, clientCmd)
+	cmd2, out2, err := sshClientCmd(ctx, clientCmd)
 	if err != nil {
 		return err
 	}
 	go func() {
-		waitCmd(cmd2, defaultClientHost, connperfClientCmd)
+		waitCmd(cmd2, defaultClientHost, clientCmd)
 		wait2 <- struct{}{}
 	}()
+	go printCmdOut(out2, defaultClientHost)
 
 	// wait client
 	time.Sleep(1 * time.Second)
@@ -135,7 +139,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 		defer wg.Done()
 		waitCmd(cmd4, defaultClientHost, runTracerCmd)
 	}()
-	go printCmdOut(out4, defaultServerHost)
+	go printCmdOut(out4, defaultClientHost)
 
 	// wait until tracer has finished
 	wg.Wait()
