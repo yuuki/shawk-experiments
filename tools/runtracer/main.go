@@ -153,19 +153,16 @@ func runCmd(args []string) error {
 		return err
 	}
 
-	waitChan := make(chan struct{})
-
 	go func() {
 		time.Sleep(period)
-		cmd.Process.Kill()
-	}()
-	go func() {
+
 		stat, err := measureCPUStats(cmd.Process.Pid)
 		if err != nil {
 			log.Fatal(err)
 		}
 		stat.PrintReport()
-		waitChan <- struct{}{}
+
+		cmd.Process.Kill()
 	}()
 
 	if err := cmd.Wait(); err != nil {
@@ -175,6 +172,5 @@ func runCmd(args []string) error {
 			return xerrors.Errorf("wait command error: :%w \n", err)
 		}
 	}
-	<-waitChan
 	return nil
 }
