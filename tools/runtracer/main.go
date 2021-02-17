@@ -39,7 +39,7 @@ var (
 func init() {
 	log.SetFlags(0)
 
-	flag.StringVar(&method, "method", methodKernelAggregation, "method")
+	flag.StringVar(&method, "method", methodAll, "method")
 	flag.DurationVar(&period, "period", 30*time.Second, "period")
 	flag.Parse()
 }
