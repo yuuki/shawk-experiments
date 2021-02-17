@@ -74,6 +74,15 @@ func waitCmd(c *exec.Cmd, host, cmd string) {
 	}
 }
 
+func printCmdOut(in io.Reader, host string) {
+	w := bufio.NewWriter(os.Stdout)
+	s := bufio.NewScanner(in)
+	for s.Scan() {
+		fmt.Fprintln(w, "\t", host, "-->", s.Text())
+	}
+	w.Flush()
+}
+
 func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	wait1 := make(chan struct{})
 	cmd1, _, err := sshServerCmd(ctx, connperfServerCmd)
@@ -114,14 +123,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 		defer wg.Done()
 		waitCmd(cmd3, defaultServerHost, runTracerCmd)
 	}()
-	go func() {
-		w := bufio.NewWriter(os.Stdout)
-		s := bufio.NewScanner(out3)
-		for s.Scan() {
-			fmt.Fprintln(w, "\t", defaultServerHost, "-->", s.Text())
-		}
-		w.Flush()
-	}()
+	go printCmdOut(out3, defaultServerHost)
 
 	cmd4, out4, err := sshClientCmd(ctx, runTracerCmd)
 	if err != nil {
@@ -133,14 +135,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 		defer wg.Done()
 		waitCmd(cmd4, defaultClientHost, runTracerCmd)
 	}()
-	go func() {
-		w := bufio.NewWriter(os.Stdout)
-		s := bufio.NewScanner(out4)
-		for s.Scan() {
-			fmt.Fprintln(w, "\t", defaultClientHost, "-->", s.Text())
-		}
-		w.Flush()
-	}()
+	go printCmdOut(out4, defaultServerHost)
 
 	// wait until tracer has finished
 	wg.Wait()
