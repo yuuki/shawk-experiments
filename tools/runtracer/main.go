@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v3/process"
+	"golang.org/x/xerrors"
 )
 
 const (
@@ -156,9 +157,7 @@ func runCmd(args []string) error {
 
 	go func() {
 		time.Sleep(period)
-		if err := cmd.Process.Kill(); err != nil {
-			log.Fatal(err)
-		}
+		cmd.Process.Kill()
 	}()
 	go func() {
 		stat, err := measureCPUStats(cmd.Process.Pid)
@@ -170,7 +169,11 @@ func runCmd(args []string) error {
 	}()
 
 	if err := cmd.Wait(); err != nil {
-		return err
+		eerr := &exec.ExitError{}
+		// ignore exiterror
+		if !errors.As(err, &eerr) {
+			return xerrors.Errorf("wait command error: :%w \n", err)
+		}
 	}
 	<-waitChan
 	return nil
