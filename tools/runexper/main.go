@@ -28,7 +28,7 @@ const (
 	experFlavorLatency = "latency"
 
 	connperfServerCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf serve -l 0.0.0.0:9100"
-	connperfClientCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect —-duration 60s %s 10.0.150.2:9100"
+	connperfClientCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect %s --duration 60s 10.0.150.2:9100"
 	runTracerCmd      = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -period 10s -method all"
 )
 
@@ -155,7 +155,7 @@ func runCPULoad(ctx context.Context) error {
 	// tcp
 	// - ephemeral
 	for _, rate := range []int{5000, 10000, 15000, 20000} {
-		flag := fmt.Sprintf("—-proto tcp —-flavor ephemeral —-rate %d", rate)
+		flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d", rate)
 		log.Println("parameter", flag)
 		if err := runCPULoadEach(ctx, flag); err != nil {
 			return err
@@ -164,7 +164,7 @@ func runCPULoad(ctx context.Context) error {
 	// tcp
 	// - persistent
 	for _, conns := range []int{5000, 10000, 15000, 20000} {
-		flag := fmt.Sprintf("—-proto tcp —-flavor persistent —-connections %d", conns)
+		flag := fmt.Sprintf("--proto tcp --flavor persistent --connections %d", conns)
 		log.Println("parameter", flag)
 		if err := runCPULoadEach(ctx, flag); err != nil {
 			return err
@@ -173,7 +173,7 @@ func runCPULoad(ctx context.Context) error {
 
 	// udp
 	for _, rate := range []int{5000, 10000, 15000, 20000} {
-		flag := fmt.Sprintf("—-proto udp —-rate %d", rate)
+		flag := fmt.Sprintf("--proto udp --rate %d", rate)
 		if err := runCPULoadEach(ctx, flag); err != nil {
 			return err
 		}
