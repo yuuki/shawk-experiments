@@ -28,7 +28,7 @@ const (
 	experFlavorLatency = "latency"
 
 	connperfServerCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf serve -l 0.0.0.0:9100"
-	connperfClientCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect %s --duration 60s 10.0.150.2:9100"
+	connperfClientCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect %s --duration 60s --show-only-results 10.0.150.2:9100"
 	runTracerCmd      = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -period 10s -method all"
 )
 
