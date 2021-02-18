@@ -28,7 +28,7 @@ const (
 	experFlavorLatency = "latency"
 
 	connperfServerCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf serve -l 0.0.0.0:9100"
-	connperfClientCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect %s --duration 60s --show-only-results 10.0.150.2:9100"
+	connperfClientCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect %s --show-only-results 10.0.150.2:9100"
 	runTracerCmd      = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -period 10s -method all"
 )
 
@@ -159,7 +159,7 @@ func runCPULoad(ctx context.Context) error {
 	// tcp
 	// - ephemeral
 	for _, rate := range []int{5000, 10000, 15000, 20000} {
-		flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d", rate)
+		flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 30s", rate)
 		log.Println("parameter", flag)
 		if err := runCPULoadEach(ctx, flag); err != nil {
 			return err
@@ -168,7 +168,7 @@ func runCPULoad(ctx context.Context) error {
 	// tcp
 	// - persistent
 	for _, conns := range []int{5000, 10000, 15000, 20000} {
-		flag := fmt.Sprintf("--proto tcp --flavor persistent --connections %d", conns)
+		flag := fmt.Sprintf("--proto tcp --flavor persistent --connections %d --duration 30s", conns)
 		log.Println("parameter", flag)
 		if err := runCPULoadEach(ctx, flag); err != nil {
 			return err
@@ -178,6 +178,93 @@ func runCPULoad(ctx context.Context) error {
 	// udp
 	for _, rate := range []int{5000, 10000, 15000, 20000} {
 		flag := fmt.Sprintf("--proto udp --rate %d", rate)
+		log.Println("parameter", flag)
+		if err := runCPULoadEach(ctx, flag); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
+	wait1 := make(chan struct{})
+	cmd1, out1, err := sshServerCmd(ctx, runTracerCmd)
+	if err != nil {
+		return err
+	}
+	defer cmd1.Process.Signal(os.Interrupt)
+	go func() {
+		waitCmd(cmd1, defaultServerHost, runTracerCmd)
+		wait1 <- struct{}{}
+	}()
+	go printCmdOut(out1, defaultServerHost)
+
+	wait2 := make(chan struct{})
+	cmd2, out2, err := sshClientCmd(ctx, runTracerCmd)
+	if err != nil {
+		return err
+	}
+	defer cmd2.Process.Signal(os.Interrupt)
+	go func() {
+		waitCmd(cmd2, defaultClientHost, runTracerCmd)
+		wait2 <- struct{}{}
+	}()
+	go printCmdOut(out2, defaultClientHost)
+
+	var wg sync.WaitGroup
+
+	cmd3, out3, err := sshServerCmd(ctx, connperfServerCmd)
+	if err != nil {
+		return err
+	}
+	go waitCmd(cmd3, defaultServerHost, connperfServerCmd)
+	go printCmdOut(out3, defaultServerHost)
+
+	// wait server
+	time.Sleep(1 * time.Second)
+
+	clientCmd := fmt.Sprintf(connperfClientCmd, connperfClientFlag)
+	cmd4, out4, err := sshClientCmd(ctx, clientCmd)
+	if err != nil {
+		return err
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		waitCmd(cmd4, defaultClientHost, clientCmd)
+	}()
+	go printCmdOut(out4, defaultClientHost)
+
+	// wait until tracer has finished
+	wg.Wait()
+
+	cmd1.Process.Signal(os.Interrupt)
+	cmd2.Process.Signal(os.Interrupt)
+	select {
+	case <-wait1:
+	case <-wait2:
+	default:
+	}
+
+	return nil
+}
+
+func runLatency(ctx context.Context) error {
+	// tcp
+	// - ephemeral
+	for _, rate := range []int{5000, 10000, 15000, 20000} {
+		flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 10s", rate)
+		log.Println("parameter", flag)
+		if err := runCPULoadEach(ctx, flag); err != nil {
+			return err
+		}
+	}
+
+	// udp
+	for _, rate := range []int{5000, 10000, 15000, 20000} {
+		flag := fmt.Sprintf("--proto udp --rate %d --duration 10s", rate)
+		log.Println("parameter", flag)
 		if err := runCPULoadEach(ctx, flag); err != nil {
 			return err
 		}
@@ -207,6 +294,7 @@ func run() int {
 	case experFlavorCPULoad:
 		err = runCPULoad(ctx)
 	case experFlavorLatency:
+		err = runLatency(ctx)
 	default:
 		log.Printf("unexpected flavor %q\n", experFlavor)
 		return exitCodeErr
