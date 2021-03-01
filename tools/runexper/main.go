@@ -29,7 +29,7 @@ const (
 
 	connperfServerCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf serve -l 0.0.0.0:9100"
 	connperfClientCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect %s --show-only-results 10.0.150.2:9100"
-	runTracerCmd      = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -period 10s -method all"
+	runTracerCmd      = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -method all"
 )
 
 var (
@@ -86,6 +86,8 @@ func printCmdOut(in io.Reader, host string) {
 }
 
 func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
+	runTracerCmd := runTracerCmd + " -period 10s"
+
 	wait1 := make(chan struct{})
 	cmd1, out1, err := sshServerCmd(ctx, connperfServerCmd)
 	if err != nil {
@@ -159,7 +161,7 @@ func runCPULoad(ctx context.Context) error {
 	// tcp
 	// - ephemeral
 	for _, rate := range []int{5000, 10000, 15000, 20000} {
-		flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 30s", rate)
+		flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
 		log.Println("parameter", flag)
 		if err := runCPULoadEach(ctx, flag); err != nil {
 			return err
@@ -168,7 +170,7 @@ func runCPULoad(ctx context.Context) error {
 	// tcp
 	// - persistent
 	for _, conns := range []int{5000, 10000, 15000, 20000} {
-		flag := fmt.Sprintf("--proto tcp --flavor persistent --connections %d --duration 30s", conns)
+		flag := fmt.Sprintf("--proto tcp --flavor persistent --connections %d --duration 1200s", conns)
 		log.Println("parameter", flag)
 		if err := runCPULoadEach(ctx, flag); err != nil {
 			return err
@@ -177,7 +179,7 @@ func runCPULoad(ctx context.Context) error {
 
 	// udp
 	for _, rate := range []int{5000, 10000, 15000, 20000} {
-		flag := fmt.Sprintf("--proto udp --rate %d", rate)
+		flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
 		log.Println("parameter", flag)
 		if err := runCPULoadEach(ctx, flag); err != nil {
 			return err
@@ -188,6 +190,8 @@ func runCPULoad(ctx context.Context) error {
 }
 
 func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
+	runTracerCmd := runTracerCmd + " -period 1200s"
+
 	wait1 := make(chan struct{})
 	cmd1, out1, err := sshServerCmd(ctx, runTracerCmd)
 	if err != nil {
@@ -251,12 +255,13 @@ func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
 }
 
 func runLatency(ctx context.Context) error {
+	// TODO: no-runtracer
 	// tcp
 	// - ephemeral
 	for _, rate := range []int{5000, 10000, 15000, 20000} {
 		flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 10s", rate)
 		log.Println("parameter", flag)
-		if err := runCPULoadEach(ctx, flag); err != nil {
+		if err := runLatencyEach(ctx, flag); err != nil {
 			return err
 		}
 	}
@@ -265,7 +270,7 @@ func runLatency(ctx context.Context) error {
 	for _, rate := range []int{5000, 10000, 15000, 20000} {
 		flag := fmt.Sprintf("--proto udp --rate %d --duration 10s", rate)
 		log.Println("parameter", flag)
-		if err := runCPULoadEach(ctx, flag); err != nil {
+		if err := runLatencyEach(ctx, flag); err != nil {
 			return err
 		}
 	}
