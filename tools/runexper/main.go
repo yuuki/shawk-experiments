@@ -34,12 +34,15 @@ const (
 
 var (
 	experFlavor string
+	protocol    string
 )
 
 func init() {
 	log.SetFlags(0)
 
-	flag.StringVar(&experFlavor, "-exper-flavor", experFlavorCPULoad, "experiment flavor")
+	flag.StringVar(&experFlavor, "exper-flavor", experFlavorCPULoad, "experiment flavor")
+	flag.StringVar(&protocol, "protocol", "all", "protocol (tcp or udp)")
+	flag.Parse()
 }
 
 func sshCmd(ctx context.Context, host string, cmd string) (*exec.Cmd, io.ReadCloser, error) {
@@ -158,31 +161,34 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 }
 
 func runCPULoad(ctx context.Context) error {
-	// tcp
-	// - ephemeral
-	for _, rate := range []int{5000, 10000, 15000, 20000} {
-		flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
-		log.Println("parameter", flag)
-		if err := runCPULoadEach(ctx, flag); err != nil {
-			return err
+	if protocol == "all" || protocol == "tcp" {
+		// tcp
+		// - ephemeral
+		for _, rate := range []int{5000, 10000, 15000, 20000} {
+			flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
+			log.Println("parameter", flag)
+			if err := runCPULoadEach(ctx, flag); err != nil {
+				return err
+			}
+		}
+		// tcp
+		// - persistent
+		for _, conns := range []int{5000, 10000, 15000, 20000} {
+			flag := fmt.Sprintf("--proto tcp --flavor persistent --connections %d --duration 1200s", conns)
+			log.Println("parameter", flag)
+			if err := runCPULoadEach(ctx, flag); err != nil {
+				return err
+			}
 		}
 	}
-	// tcp
-	// - persistent
-	for _, conns := range []int{5000, 10000, 15000, 20000} {
-		flag := fmt.Sprintf("--proto tcp --flavor persistent --connections %d --duration 1200s", conns)
-		log.Println("parameter", flag)
-		if err := runCPULoadEach(ctx, flag); err != nil {
-			return err
-		}
-	}
-
-	// udp
-	for _, rate := range []int{5000, 10000, 15000, 20000} {
-		flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
-		log.Println("parameter", flag)
-		if err := runCPULoadEach(ctx, flag); err != nil {
-			return err
+	if protocol == "all" || protocol == "udp" {
+		// udp
+		for _, rate := range []int{5000, 10000, 15000, 20000} {
+			flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
+			log.Println("parameter", flag)
+			if err := runCPULoadEach(ctx, flag); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -256,22 +262,24 @@ func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
 
 func runLatency(ctx context.Context) error {
 	// TODO: no-runtracer
-	// tcp
-	// - ephemeral
-	for _, rate := range []int{5000, 10000, 15000, 20000} {
-		flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 10s", rate)
-		log.Println("parameter", flag)
-		if err := runLatencyEach(ctx, flag); err != nil {
-			return err
+
+	if protocol == "all" || protocol == "tcp" {
+		// - ephemeral
+		for _, rate := range []int{5000, 10000, 15000, 20000} {
+			flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 10s", rate)
+			log.Println("parameter", flag)
+			if err := runLatencyEach(ctx, flag); err != nil {
+				return err
+			}
 		}
 	}
-
-	// udp
-	for _, rate := range []int{5000, 10000, 15000, 20000} {
-		flag := fmt.Sprintf("--proto udp --rate %d --duration 10s", rate)
-		log.Println("parameter", flag)
-		if err := runLatencyEach(ctx, flag); err != nil {
-			return err
+	if protocol == "all" || protocol == "udp" {
+		for _, rate := range []int{5000, 10000, 15000, 20000} {
+			flag := fmt.Sprintf("--proto udp --rate %d --duration 10s", rate)
+			log.Println("parameter", flag)
+			if err := runLatencyEach(ctx, flag); err != nil {
+				return err
+			}
 		}
 	}
 
