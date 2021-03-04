@@ -162,7 +162,10 @@ func runCmd(args []string) error {
 		}
 		stat.PrintReport()
 
-		cmd.Process.Kill()
+		if err := cmd.Process.Kill(); err != nil {
+			time.Sleep(1 * time.Second)
+			cmd.Process.Kill()
+		}
 	}()
 
 	if err := cmd.Wait(); err != nil {
