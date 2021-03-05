@@ -80,7 +80,7 @@ func waitCmd(c *exec.Cmd, host, cmd string) {
 }
 
 func printCmdOut(in io.Reader, host string) {
-	w := bufio.NewWriter(os.Stdout)
+	w := bufio.NewWriter(os.Stderr)
 	s := bufio.NewScanner(in)
 	for s.Scan() {
 		fmt.Fprintln(w, "\t", host, "-->", s.Text())
@@ -103,7 +103,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	go printCmdOut(out1, defaultServerHost)
 
 	// wait server
-	time.Sleep(1 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	wait2 := make(chan struct{})
 	clientCmd := fmt.Sprintf(connperfClientCmd, connperfClientFlag)
@@ -118,7 +118,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	go printCmdOut(out2, defaultClientHost)
 
 	// wait client
-	time.Sleep(1 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	var wg sync.WaitGroup
 
@@ -232,7 +232,7 @@ func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
 	go printCmdOut(out3, defaultServerHost)
 
 	// wait server
-	time.Sleep(1 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	clientCmd := fmt.Sprintf(connperfClientCmd, connperfClientFlag)
 	cmd4, out4, err := sshClientCmd(ctx, clientCmd)
