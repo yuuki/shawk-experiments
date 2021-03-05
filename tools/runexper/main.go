@@ -195,33 +195,7 @@ func runCPULoad(ctx context.Context) error {
 	return nil
 }
 
-func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
-	runTracerCmd := runTracerCmd + " -period 1200s"
-
-	wait1 := make(chan struct{})
-	cmd1, out1, err := sshServerCmd(ctx, runTracerCmd)
-	if err != nil {
-		return err
-	}
-	defer cmd1.Process.Signal(os.Interrupt)
-	go func() {
-		waitCmd(cmd1, defaultServerHost, runTracerCmd)
-		wait1 <- struct{}{}
-	}()
-	go printCmdOut(out1, defaultServerHost)
-
-	wait2 := make(chan struct{})
-	cmd2, out2, err := sshClientCmd(ctx, runTracerCmd)
-	if err != nil {
-		return err
-	}
-	defer cmd2.Process.Signal(os.Interrupt)
-	go func() {
-		waitCmd(cmd2, defaultClientHost, runTracerCmd)
-		wait2 <- struct{}{}
-	}()
-	go printCmdOut(out2, defaultClientHost)
-
+func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) error {
 	var wg sync.WaitGroup
 
 	cmd3, out3, err := sshServerCmd(ctx, connperfServerCmd)
@@ -249,6 +223,40 @@ func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
 	// wait until tracer has finished
 	wg.Wait()
 
+	return nil
+}
+
+func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
+	runTracerCmd := runTracerCmd + " -period 1200s"
+
+	wait1 := make(chan struct{})
+	cmd1, out1, err := sshServerCmd(ctx, runTracerCmd)
+	if err != nil {
+		return err
+	}
+	defer cmd1.Process.Signal(os.Interrupt)
+	go func() {
+		waitCmd(cmd1, defaultServerHost, runTracerCmd)
+		wait1 <- struct{}{}
+	}()
+	go printCmdOut(out1, defaultServerHost)
+
+	wait2 := make(chan struct{})
+	cmd2, out2, err := sshClientCmd(ctx, runTracerCmd)
+	if err != nil {
+		return err
+	}
+	defer cmd2.Process.Signal(os.Interrupt)
+	go func() {
+		waitCmd(cmd2, defaultClientHost, runTracerCmd)
+		wait2 <- struct{}{}
+	}()
+	go printCmdOut(out2, defaultClientHost)
+
+	if err := runLatencyWithoutTracer(ctx, connperfClientFlag); err != nil {
+		return err
+	}
+
 	cmd1.Process.Signal(os.Interrupt)
 	cmd2.Process.Signal(os.Interrupt)
 	select {
@@ -268,6 +276,9 @@ func runLatency(ctx context.Context) error {
 		for _, rate := range []int{5000, 10000, 15000, 20000} {
 			flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 10s", rate)
 			log.Println("parameter", flag)
+			if err := runLatencyWithoutTracer(ctx, flag); err != nil {
+				return err
+			}
 			if err := runLatencyEach(ctx, flag); err != nil {
 				return err
 			}
@@ -277,6 +288,9 @@ func runLatency(ctx context.Context) error {
 		for _, rate := range []int{5000, 10000, 15000, 20000} {
 			flag := fmt.Sprintf("--proto udp --rate %d --duration 10s", rate)
 			log.Println("parameter", flag)
+			if err := runLatencyWithoutTracer(ctx, flag); err != nil {
+				return err
+			}
 			if err := runLatencyEach(ctx, flag); err != nil {
 				return err
 			}
