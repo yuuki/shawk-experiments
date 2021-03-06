@@ -202,6 +202,8 @@ func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) err
 	if err != nil {
 		return err
 	}
+	defer cmd3.Process.Signal(os.Interrupt)
+
 	go waitCmd(cmd3, defaultServerHost, connperfServerCmd)
 	go printCmdOut(out3, defaultServerHost)
 
@@ -213,6 +215,8 @@ func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) err
 	if err != nil {
 		return err
 	}
+	defer cmd4.Process.Signal(os.Interrupt)
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -226,15 +230,13 @@ func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) err
 	return nil
 }
 
-func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
-	runTracerCmd := runTracerCmd + " -period 1200s"
-
+func prepareTracer(ctx context.Context, method string) (chan struct{}, chan struct{}, *os.Process, *os.Process, error) {
+	runTracerCmd := runTracerCmd + " -period 1200s" + " -method " + method
 	wait1 := make(chan struct{})
 	cmd1, out1, err := sshServerCmd(ctx, runTracerCmd)
 	if err != nil {
-		return err
+		return nil, nil, nil, nil, err
 	}
-	defer cmd1.Process.Signal(os.Interrupt)
 	go func() {
 		waitCmd(cmd1, defaultServerHost, runTracerCmd)
 		wait1 <- struct{}{}
@@ -244,27 +246,36 @@ func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
 	wait2 := make(chan struct{})
 	cmd2, out2, err := sshClientCmd(ctx, runTracerCmd)
 	if err != nil {
-		return err
+		return nil, nil, nil, nil, err
 	}
-	defer cmd2.Process.Signal(os.Interrupt)
 	go func() {
 		waitCmd(cmd2, defaultClientHost, runTracerCmd)
 		wait2 <- struct{}{}
 	}()
 	go printCmdOut(out2, defaultClientHost)
 
-	if err := runLatencyWithoutTracer(ctx, connperfClientFlag); err != nil {
-		return err
-	}
+	return wait1, wait2, cmd1.Process, cmd2.Process, nil
+}
 
-	cmd1.Process.Signal(os.Interrupt)
-	cmd2.Process.Signal(os.Interrupt)
-	select {
-	case <-wait1:
-	case <-wait2:
-	default:
-	}
+func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
+	for _, method := range []string{"snapshot-polling", "user-aggregation", "kernel-aggregation"} {
+		wait1, wait2, proc1, proc2, err := prepareTracer(ctx, method)
+		if err != nil {
+			return err
+		}
 
+		if err := runLatencyWithoutTracer(ctx, connperfClientFlag); err != nil {
+			return err
+		}
+
+		proc1.Signal(os.Interrupt)
+		proc2.Signal(os.Interrupt)
+		select {
+		case <-wait1:
+		case <-wait2:
+		default:
+		}
+	}
 	return nil
 }
 
