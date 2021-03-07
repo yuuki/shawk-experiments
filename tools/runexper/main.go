@@ -202,9 +202,12 @@ func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) err
 	if err != nil {
 		return err
 	}
-	defer cmd3.Process.Signal(os.Interrupt)
 
-	go waitCmd(cmd3, defaultServerHost, connperfServerCmd)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		waitCmd(cmd3, defaultServerHost, connperfServerCmd)
+	}()
 	go printCmdOut(out3, defaultServerHost)
 
 	// wait server
@@ -221,10 +224,11 @@ func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) err
 	go func() {
 		defer wg.Done()
 		waitCmd(cmd4, defaultClientHost, clientCmd)
+		cmd3.Process.Signal(os.Interrupt) // server kill
 	}()
 	go printCmdOut(out4, defaultClientHost)
 
-	// wait until tracer has finished
+	// wait until connperf server and client have finished
 	wg.Wait()
 
 	return nil
