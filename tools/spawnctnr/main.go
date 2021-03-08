@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -64,27 +65,26 @@ func run() int {
 		return exitCodeErr
 	}
 
-	sig := make(chan os.Signal, 1)
-	defer close(sig)
-	signal.Notify(sig, os.Interrupt, os.Kill)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go func() {
-		ret := <-sig
-		log.Printf("Received %v, Goodbye\n", ret)
-		cancel()
-	}()
-
 	go func() {
 		if err := serveHTTP(); err != nil {
 			log.Fatal(err)
 		}
 	}()
 
-	if err := spawnContainers(ctx); err != nil {
-		log.Printf("%v\n", err)
+	ctx, stop := signal.NotifyContext(context.Background(),
+		syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		log.Println("Received signal, cleaned up containers")
+	}()
+
+	errChan := make(chan error)
+	go func() {
+		errChan <- spawnContainers(ctx)
+	}()
+	if err := <-errChan; err != nil {
+		log.Printf("%+v\n", err)
 		return exitCodeErr
 	}
 
@@ -106,7 +106,7 @@ func spawnContainers(ctx context.Context) error {
 	if err != nil {
 		return xerrors.Errorf("could not pull %q: %w", connperfImage, err)
 	}
-	io.Copy(os.Stdout, reader)
+	io.Copy(os.Stderr, reader)
 
 	log.Printf("--> Spawning '%d' containers\n", containers)
 
