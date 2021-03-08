@@ -24,12 +24,15 @@ const (
 	defaultServerHost = "10.0.150.2"
 	defaultHostUser   = "ubuntu"
 
-	experFlavorCPULoad = "cpu-load"
-	experFlavorLatency = "latency"
+	experFlavorCPULoad      = "cpu-load"
+	experFlavorCPULoadCtnrs = "cpu-load-ctnrs"
+	experFlavorLatency      = "latency"
 
-	connperfServerCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf serve -l 0.0.0.0:9100"
-	connperfClientCmd = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect %s --show-only-results 10.0.150.2:9100"
-	runTracerCmd      = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -method all"
+	connperfServerCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf serve -l 0.0.0.0:9100"
+	connperfClientCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect %s --show-only-results 10.0.150.2:9100"
+	spawnCtnrServerCmd1 = "./spawnctnr -flavor server -containers %d"
+	spawnCtnrClientCmd1 = "./connperf connect %s --show-only-results $(curl -sS http://10.0.150.2:8080/hostports)"
+	runTracerCmd        = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -method all"
 )
 
 var (
@@ -149,6 +152,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	// wait until tracer has finished
 	wg.Wait()
 
+	// TODO: should kill over ssh
 	cmd1.Process.Signal(os.Interrupt)
 	cmd2.Process.Signal(os.Interrupt)
 	select {
@@ -192,6 +196,114 @@ func runCPULoad(ctx context.Context) error {
 		}
 	}
 
+	return nil
+}
+
+func runCPULoadCtnrsEach(ctx context.Context, containers int, connperfClientFlag string) error {
+	runTracerCmd := runTracerCmd + " -period 10s"
+
+	spawnCtnrServerCmd := fmt.Sprintf(spawnCtnrServerCmd1, containers)
+	wait1 := make(chan struct{})
+	cmd1, out1, err := sshServerCmd(ctx, spawnCtnrServerCmd)
+	if err != nil {
+		return err
+	}
+	go func() {
+		waitCmd(cmd1, defaultServerHost, spawnCtnrServerCmd)
+		wait1 <- struct{}{}
+	}()
+	go printCmdOut(out1, defaultServerHost)
+
+	// wait server
+	time.Sleep(5*time.Second + time.Duration(100*containers)*time.Millisecond)
+
+	wait2 := make(chan struct{})
+	clientCmd := fmt.Sprintf(spawnCtnrClientCmd1, connperfClientFlag)
+	cmd2, out2, err := sshClientCmd(ctx, clientCmd)
+	if err != nil {
+		return err
+	}
+	go func() {
+		waitCmd(cmd2, defaultClientHost, clientCmd)
+		wait2 <- struct{}{}
+	}()
+	go printCmdOut(out2, defaultClientHost)
+
+	// wait client
+	time.Sleep(10 * time.Second)
+
+	var wg sync.WaitGroup
+
+	cmd3, out3, err := sshServerCmd(ctx, runTracerCmd)
+	if err != nil {
+		return err
+	}
+	defer cmd3.Process.Signal(os.Interrupt)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		waitCmd(cmd3, defaultServerHost, runTracerCmd)
+	}()
+	go printCmdOut(out3, defaultServerHost)
+
+	cmd4, out4, err := sshClientCmd(ctx, runTracerCmd)
+	if err != nil {
+		return err
+	}
+	defer cmd4.Process.Signal(os.Interrupt)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		waitCmd(cmd4, defaultClientHost, runTracerCmd)
+	}()
+	go printCmdOut(out4, defaultClientHost)
+
+	// wait until tracer has finished
+	wg.Wait()
+
+	cmd1.Process.Signal(os.Interrupt)
+	cmd2.Process.Signal(os.Interrupt)
+	select {
+	case <-wait1:
+	case <-wait2:
+	default:
+	}
+
+	return nil
+}
+
+func runCPULoadCtnrs(ctx context.Context) error {
+	if protocol == "all" || protocol == "tcp" {
+		// tcp
+		// - ephemeral
+		for _, containers := range []int{1, 10, 100, 1000} {
+			rate := 20000 / containers
+			flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
+			log.Println("parameter", flag)
+			if err := runCPULoadCtnrsEach(ctx, containers, flag); err != nil {
+				return err
+			}
+		}
+		// tcp
+		// - persistent
+		for _, containers := range []int{1, 10, 100, 1000} {
+			rate := 20000 / containers
+			flag := fmt.Sprintf("--proto tcp --flavor persistent --rate %d --duration 1200s", rate)
+			log.Println("parameter", flag)
+			if err := runCPULoadCtnrsEach(ctx, containers, flag); err != nil {
+				return err
+			}
+		}
+		// udp
+		for _, containers := range []int{1, 10, 100, 1000} {
+			rate := 20000 / containers
+			flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
+			log.Println("parameter", flag)
+			if err := runCPULoadCtnrsEach(ctx, containers, flag); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -335,6 +447,8 @@ func run() int {
 	switch experFlavor {
 	case experFlavorCPULoad:
 		err = runCPULoad(ctx)
+	case experFlavorCPULoadCtnrs:
+		err = runCPULoadCtnrs(ctx)
 	case experFlavorLatency:
 		err = runLatency(ctx)
 	default:
