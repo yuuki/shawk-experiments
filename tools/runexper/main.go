@@ -33,6 +33,7 @@ const (
 	spawnCtnrServerCmd1 = "./spawnctnr -flavor server -containers %d"
 	spawnCtnrClientCmd1 = "./connperf connect %s --show-only-results $(curl -sS http://10.0.150.2:8080/hostports)"
 	runTracerCmd        = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -method all"
+	killSpawnCtnrCmd    = "sudo pkill -INT spawnctnrs"
 )
 
 var (
@@ -271,29 +272,20 @@ func runCPULoadCtnrsEach(ctx context.Context, containers int, connperfClientFlag
 
 func runCPULoadCtnrs(ctx context.Context) error {
 	if protocol == "all" || protocol == "tcp" {
+		variants := []int{1, 50, 100, 150, 200}
 		// tcp
 		// - ephemeral
-		for _, containers := range []int{1, 10, 100, 1000} {
-			rate := 20000 / containers
+		for _, containers := range variants {
+			rate := 10000 / containers
 			flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
 			log.Println("parameter", flag)
 			if err := runCPULoadCtnrsEach(ctx, containers, flag); err != nil {
 				return err
 			}
 		}
-		// tcp
-		// - persistent
-		for _, containers := range []int{1, 10, 100, 1000} {
-			rate := 20000 / containers
-			flag := fmt.Sprintf("--proto tcp --flavor persistent --rate %d --duration 1200s", rate)
-			log.Println("parameter", flag)
-			if err := runCPULoadCtnrsEach(ctx, containers, flag); err != nil {
-				return err
-			}
-		}
 		// udp
-		for _, containers := range []int{1, 10, 100, 1000} {
-			rate := 20000 / containers
+		for _, containers := range variants {
+			rate := 10000 / containers
 			flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
 			log.Println("parameter", flag)
 			if err := runCPULoadCtnrsEach(ctx, containers, flag); err != nil {
