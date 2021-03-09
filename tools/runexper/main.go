@@ -321,51 +321,52 @@ func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) err
 	return nil
 }
 
-func prepareTracer(ctx context.Context, method string) (chan struct{}, chan struct{}, *os.Process, *os.Process, error) {
+func prepareTracer(ctx context.Context, method string) (func(), *sync.WaitGroup, error) {
 	runTracerCmd := runTracerCmd + " -period 1200s" + " -method " + method
-	wait1 := make(chan struct{})
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 	cmd1, out1, err := sshServerCmd(ctx, runTracerCmd)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return func() {}, &wg, err
 	}
 	go func() {
+		defer wg.Done()
 		waitCmd(cmd1, defaultServerHost, runTracerCmd)
-		wait1 <- struct{}{}
 	}()
 	go printCmdOut(out1, defaultServerHost)
 
-	wait2 := make(chan struct{})
+	wg.Add(1)
 	cmd2, out2, err := sshClientCmd(ctx, runTracerCmd)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return func() {}, &wg, err
 	}
 	go func() {
+		defer wg.Done()
 		waitCmd(cmd2, defaultClientHost, runTracerCmd)
-		wait2 <- struct{}{}
 	}()
 	go printCmdOut(out2, defaultClientHost)
 
-	return wait1, wait2, cmd1.Process, cmd2.Process, nil
+	clean := func() {
+		cmd1.Process.Signal(os.Interrupt)
+		cmd2.Process.Signal(os.Interrupt)
+	}
+	return clean, &wg, nil
 }
 
 func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
 	for _, method := range []string{"snapshot-polling", "user-aggregation", "kernel-aggregation"} {
-		wait1, wait2, proc1, proc2, err := prepareTracer(ctx, method)
+		clean, wg, err := prepareTracer(ctx, method)
 		if err != nil {
 			return err
 		}
 
 		if err := runLatencyWithoutTracer(ctx, connperfClientFlag); err != nil {
+			clean()
 			return err
 		}
 
-		proc1.Signal(os.Interrupt)
-		proc2.Signal(os.Interrupt)
-		select {
-		case <-wait1:
-		case <-wait2:
-		default:
-		}
+		clean()
+		wg.Wait()
 	}
 	return nil
 }
