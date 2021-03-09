@@ -92,9 +92,41 @@ func printCmdOut(in io.Reader, host string) {
 	w.Flush()
 }
 
-func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
-	runTracerCmd := runTracerCmd + " -period 10s"
+func runTracer(ctx context.Context, period time.Duration) error {
+	tracerCmd := runTracerCmd + " " + fmt.Sprintf("-period %s", period)
 
+	var wg sync.WaitGroup
+
+	cmd3, out3, err := sshServerCmd(ctx, tracerCmd)
+	if err != nil {
+		return err
+	}
+	defer cmd3.Process.Signal(os.Interrupt)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		waitCmd(cmd3, defaultServerHost, tracerCmd)
+	}()
+	go printCmdOut(out3, defaultServerHost)
+
+	cmd4, out4, err := sshClientCmd(ctx, tracerCmd)
+	if err != nil {
+		return err
+	}
+	defer cmd4.Process.Signal(os.Interrupt)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		waitCmd(cmd4, defaultClientHost, runTracerCmd)
+	}()
+	go printCmdOut(out4, defaultClientHost)
+
+	// wait until tracer has finished
+	wg.Wait()
+	return nil
+}
+
+func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	wait1 := make(chan struct{})
 	cmd1, out1, err := sshServerCmd(ctx, connperfServerCmd)
 	if err != nil {
@@ -124,34 +156,9 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	// wait client
 	time.Sleep(5 * time.Second)
 
-	var wg sync.WaitGroup
-
-	cmd3, out3, err := sshServerCmd(ctx, runTracerCmd)
-	if err != nil {
+	if err := runTracer(ctx, 10*time.Second); err != nil {
 		return err
 	}
-	defer cmd3.Process.Signal(os.Interrupt)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd3, defaultServerHost, runTracerCmd)
-	}()
-	go printCmdOut(out3, defaultServerHost)
-
-	cmd4, out4, err := sshClientCmd(ctx, runTracerCmd)
-	if err != nil {
-		return err
-	}
-	defer cmd4.Process.Signal(os.Interrupt)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd4, defaultClientHost, runTracerCmd)
-	}()
-	go printCmdOut(out4, defaultClientHost)
-
-	// wait until tracer has finished
-	wg.Wait()
 
 	// cleanup
 	defer cmd1.Process.Signal(os.Interrupt)
@@ -201,8 +208,6 @@ func runCPULoad(ctx context.Context) error {
 }
 
 func runCPULoadCtnrsEach(ctx context.Context, containers int, connperfClientFlag string) error {
-	runTracerCmd := runTracerCmd + " -period 10s"
-
 	var wgConn sync.WaitGroup
 	spawnCtnrServerCmd := fmt.Sprintf(spawnCtnrServerCmd1, containers)
 	wgConn.Add(1)
@@ -234,33 +239,9 @@ func runCPULoadCtnrsEach(ctx context.Context, containers int, connperfClientFlag
 	// wait client
 	time.Sleep(10 * time.Second)
 
-	var wgTracer sync.WaitGroup
-	cmd3, out3, err := sshServerCmd(ctx, runTracerCmd)
-	if err != nil {
+	if err := runTracer(ctx, 10*time.Second); err != nil {
 		return err
 	}
-	defer cmd3.Process.Signal(os.Interrupt)
-	wgTracer.Add(1)
-	go func() {
-		defer wgTracer.Done()
-		waitCmd(cmd3, defaultServerHost, runTracerCmd)
-	}()
-	go printCmdOut(out3, defaultServerHost)
-
-	cmd4, out4, err := sshClientCmd(ctx, runTracerCmd)
-	if err != nil {
-		return err
-	}
-	defer cmd4.Process.Signal(os.Interrupt)
-	wgTracer.Add(1)
-	go func() {
-		defer wgTracer.Done()
-		waitCmd(cmd4, defaultClientHost, runTracerCmd)
-	}()
-	go printCmdOut(out4, defaultClientHost)
-
-	// wait until tracer has finished
-	wgTracer.Wait()
 
 	// wait cleanup containers
 	sshServerCmd(ctx, "sudo pkill -INT spawnctnr")
