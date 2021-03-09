@@ -27,8 +27,9 @@ const (
 )
 
 var (
-	method string
-	period time.Duration
+	method     string
+	period     time.Duration
+	bpfProfile bool
 
 	cmdByMethod = map[string][]string{
 		methodSnapshotPolling:   []string{"./lstf", "-p", "-n", "--watch=1"},
@@ -42,6 +43,7 @@ func init() {
 
 	flag.StringVar(&method, "method", methodAll, "method")
 	flag.DurationVar(&period, "period", 30*time.Second, "period")
+	flag.BoolVar(&bpfProfile, "bpf-profile", false, "bpf profile")
 	flag.Parse()
 }
 
@@ -51,6 +53,13 @@ func main() {
 
 func run() int {
 	log.Printf("Running method %q during period %q ...\n", method, period)
+
+	if bpfProfile {
+		if err := disableBPFProfile(); err != nil {
+			log.Printf("%+v\n", err)
+			return exitCodeErr
+		}
+	}
 
 	switch method {
 	case methodSnapshotPolling:
@@ -109,6 +118,22 @@ func (s *cpuStat) PrintReport() {
 	)
 }
 
+func enableBPFProfile() error {
+	cmd := exec.Command("sysctl", "-w", "kernel.bpf_stats_enabled=1")
+	if err := cmd.Run(); err != nil {
+		return xerrors.Errorf("enable bpf profile error: %w")
+	}
+	return nil
+}
+
+func disableBPFProfile() error {
+	cmd := exec.Command("sysctl", "-w", "kernel.bpf_stats_enabled=0")
+	if err := cmd.Run(); err != nil {
+		return xerrors.Errorf("enable bpf profile error: %w")
+	}
+	return nil
+}
+
 func measureCPUStats(pid int) (*cpuStat, error) {
 	proc, err := process.NewProcess(int32(pid))
 	if err != nil {
@@ -140,6 +165,15 @@ func measureCPUStats(pid int) (*cpuStat, error) {
 	}
 
 	return stat, nil
+}
+
+func runCmdWithProfile(args []string) error {
+	enableBPFProfile()
+	defer disableBPFProfile()
+	if err := runCmd(args); err != nil {
+		return err
+	}
+	return nil
 }
 
 func runCmd(args []string) error {
