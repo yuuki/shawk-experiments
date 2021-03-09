@@ -33,7 +33,7 @@ const (
 	spawnCtnrServerCmd1 = "./spawnctnr -flavor server -containers %d"
 	spawnCtnrClientCmd1 = "./connperf connect %s --show-only-results $(curl -sS http://10.0.150.2:8080/hostports)"
 	runTracerCmd        = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -method all"
-	killSpawnCtnrCmd    = "sudo pkill -INT spawnctnrs"
+	killSpawnCtnrCmd    = "sudo pkill -INT spawnctnr"
 )
 
 var (
@@ -127,29 +127,30 @@ func runTracer(ctx context.Context, period time.Duration) error {
 }
 
 func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
-	wait1 := make(chan struct{})
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 	cmd1, out1, err := sshServerCmd(ctx, connperfServerCmd)
 	if err != nil {
 		return err
 	}
 	go func() {
+		defer wg.Done()
 		waitCmd(cmd1, defaultServerHost, connperfServerCmd)
-		wait1 <- struct{}{}
 	}()
 	go printCmdOut(out1, defaultServerHost)
 
 	// wait server
 	time.Sleep(5 * time.Second)
 
-	wait2 := make(chan struct{})
+	wg.Add(1)
 	clientCmd := fmt.Sprintf(connperfClientCmd, connperfClientFlag)
 	cmd2, out2, err := sshClientCmd(ctx, clientCmd)
 	if err != nil {
 		return err
 	}
 	go func() {
+		defer wg.Done()
 		waitCmd(cmd2, defaultClientHost, clientCmd)
-		wait2 <- struct{}{}
 	}()
 	go printCmdOut(out2, defaultClientHost)
 
@@ -161,13 +162,9 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	}
 
 	// cleanup
-	defer cmd1.Process.Signal(os.Interrupt)
+	sshServerCmd(ctx, killSpawnCtnrCmd)
 	defer cmd2.Process.Signal(os.Interrupt)
-	select {
-	case <-wait1:
-	case <-wait2:
-	default:
-	}
+	wg.Wait()
 
 	return nil
 }
@@ -244,7 +241,7 @@ func runCPULoadCtnrsEach(ctx context.Context, containers int, connperfClientFlag
 	}
 
 	// wait cleanup containers
-	sshServerCmd(ctx, "sudo pkill -INT spawnctnr")
+	sshServerCmd(ctx, killSpawnCtnrCmd)
 	cmd2.Process.Signal(os.Interrupt)
 	wgConn.Wait()
 
