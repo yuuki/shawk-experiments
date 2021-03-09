@@ -154,16 +154,20 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	}()
 	go printCmdOut(out2, defaultClientHost)
 
+	cleanup := func() {
+		sshServerCmd(ctx, killSpawnCtnrCmd)
+		cmd2.Process.Signal(os.Interrupt)
+	}
+
 	// wait client
 	time.Sleep(5 * time.Second)
 
 	if err := runTracer(ctx, 10*time.Second); err != nil {
+		cleanup()
 		return err
 	}
 
-	// cleanup
-	sshServerCmd(ctx, killSpawnCtnrCmd)
-	defer cmd2.Process.Signal(os.Interrupt)
+	cleanup()
 	wg.Wait()
 
 	return nil
@@ -205,15 +209,15 @@ func runCPULoad(ctx context.Context) error {
 }
 
 func runCPULoadCtnrsEach(ctx context.Context, containers int, connperfClientFlag string) error {
-	var wgConn sync.WaitGroup
+	var wg sync.WaitGroup
 	spawnCtnrServerCmd := fmt.Sprintf(spawnCtnrServerCmd1, containers)
-	wgConn.Add(1)
+	wg.Add(1)
 	cmd1, out1, err := sshServerCmd(ctx, spawnCtnrServerCmd)
 	if err != nil {
 		return err
 	}
 	go func() {
-		defer wgConn.Done()
+		defer wg.Done()
 		waitCmd(cmd1, defaultServerHost, spawnCtnrServerCmd)
 	}()
 	go printCmdOut(out1, defaultServerHost)
@@ -221,29 +225,33 @@ func runCPULoadCtnrsEach(ctx context.Context, containers int, connperfClientFlag
 	// wait server
 	time.Sleep(5*time.Second + time.Duration(100*containers)*time.Millisecond)
 
-	wgConn.Add(1)
+	wg.Add(1)
 	clientCmd := fmt.Sprintf(spawnCtnrClientCmd1, connperfClientFlag)
 	cmd2, out2, err := sshClientCmd(ctx, clientCmd)
 	if err != nil {
 		return err
 	}
 	go func() {
-		defer wgConn.Done()
+		defer wg.Done()
 		waitCmd(cmd2, defaultClientHost, clientCmd)
 	}()
 	go printCmdOut(out2, defaultClientHost)
+
+	cleanup := func() {
+		sshServerCmd(ctx, killSpawnCtnrCmd)
+		cmd2.Process.Signal(os.Interrupt)
+	}
 
 	// wait client
 	time.Sleep(10 * time.Second)
 
 	if err := runTracer(ctx, 10*time.Second); err != nil {
+		cleanup()
 		return err
 	}
 
-	// wait cleanup containers
-	sshServerCmd(ctx, killSpawnCtnrCmd)
-	cmd2.Process.Signal(os.Interrupt)
-	wgConn.Wait()
+	cleanup()
+	wg.Wait()
 
 	return nil
 }
