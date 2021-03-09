@@ -1,0 +1,23 @@
+- 
+  hosts: all
+  user: root
+  tasks:
+  - shell: uname -a
+    ignore_errors: yes
+    register: uname_result
+  - name: Install apt packages
+    apt:
+      name: 
+        - apt-transport-https
+        - ca-certificates 
+        - software-properties-common
+        - vim
+        - curl
+        - bpftrace
+        - clang
+        - trace-cmd
+        - perf
+        - linux-headers-{{ uname_result.stdout }}
+        - linux-tools-{{ uname_result.stdout }}
+        - bpfcc-tools
+      state: present
