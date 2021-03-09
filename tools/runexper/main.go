@@ -152,9 +152,9 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	// wait until tracer has finished
 	wg.Wait()
 
-	// TODO: should kill over ssh
-	cmd1.Process.Signal(os.Interrupt)
-	cmd2.Process.Signal(os.Interrupt)
+	// cleanup
+	defer cmd1.Process.Signal(os.Interrupt)
+	defer cmd2.Process.Signal(os.Interrupt)
 	select {
 	case <-wait1:
 	case <-wait2:
@@ -202,46 +202,46 @@ func runCPULoad(ctx context.Context) error {
 func runCPULoadCtnrsEach(ctx context.Context, containers int, connperfClientFlag string) error {
 	runTracerCmd := runTracerCmd + " -period 10s"
 
+	var wgConn sync.WaitGroup
 	spawnCtnrServerCmd := fmt.Sprintf(spawnCtnrServerCmd1, containers)
-	wait1 := make(chan struct{})
+	wgConn.Add(1)
 	cmd1, out1, err := sshServerCmd(ctx, spawnCtnrServerCmd)
 	if err != nil {
 		return err
 	}
 	go func() {
+		defer wgConn.Done()
 		waitCmd(cmd1, defaultServerHost, spawnCtnrServerCmd)
-		wait1 <- struct{}{}
 	}()
 	go printCmdOut(out1, defaultServerHost)
 
 	// wait server
 	time.Sleep(5*time.Second + time.Duration(100*containers)*time.Millisecond)
 
-	wait2 := make(chan struct{})
+	wgConn.Add(1)
 	clientCmd := fmt.Sprintf(spawnCtnrClientCmd1, connperfClientFlag)
 	cmd2, out2, err := sshClientCmd(ctx, clientCmd)
 	if err != nil {
 		return err
 	}
 	go func() {
+		defer wgConn.Done()
 		waitCmd(cmd2, defaultClientHost, clientCmd)
-		wait2 <- struct{}{}
 	}()
 	go printCmdOut(out2, defaultClientHost)
 
 	// wait client
 	time.Sleep(10 * time.Second)
 
-	var wg sync.WaitGroup
-
+	var wgTracer sync.WaitGroup
 	cmd3, out3, err := sshServerCmd(ctx, runTracerCmd)
 	if err != nil {
 		return err
 	}
 	defer cmd3.Process.Signal(os.Interrupt)
-	wg.Add(1)
+	wgTracer.Add(1)
 	go func() {
-		defer wg.Done()
+		defer wgTracer.Done()
 		waitCmd(cmd3, defaultServerHost, runTracerCmd)
 	}()
 	go printCmdOut(out3, defaultServerHost)
@@ -251,23 +251,20 @@ func runCPULoadCtnrsEach(ctx context.Context, containers int, connperfClientFlag
 		return err
 	}
 	defer cmd4.Process.Signal(os.Interrupt)
-	wg.Add(1)
+	wgTracer.Add(1)
 	go func() {
-		defer wg.Done()
+		defer wgTracer.Done()
 		waitCmd(cmd4, defaultClientHost, runTracerCmd)
 	}()
 	go printCmdOut(out4, defaultClientHost)
 
 	// wait until tracer has finished
-	wg.Wait()
+	wgTracer.Wait()
 
-	cmd1.Process.Signal(os.Interrupt)
+	// wait cleanup containers
+	sshServerCmd(ctx, "sudo pkill -INT spawnctnr")
 	cmd2.Process.Signal(os.Interrupt)
-	select {
-	case <-wait1:
-	case <-wait2:
-	default:
-	}
+	wgConn.Wait()
 
 	return nil
 }
