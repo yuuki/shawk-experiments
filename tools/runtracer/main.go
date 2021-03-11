@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -68,12 +70,12 @@ func run() int {
 			return exitCodeErr
 		}
 	case methodUserAggregation:
-		if err := runCmd(cmdByMethod[methodUserAggregation]); err != nil {
+		if err := runCmdWithBPFProfile(cmdByMethod[methodUserAggregation]); err != nil {
 			log.Println(err)
 			return exitCodeErr
 		}
 	case methodKernelAggregation:
-		if err := runCmd(cmdByMethod[methodKernelAggregation]); err != nil {
+		if err := runCmdWithBPFProfile(cmdByMethod[methodKernelAggregation]); err != nil {
 			log.Println(err)
 			return exitCodeErr
 		}
@@ -84,12 +86,12 @@ func run() int {
 			return exitCodeErr
 		}
 		log.Printf("Running method %q during period %q ...\n", methodUserAggregation, period)
-		if err := runCmd(cmdByMethod[methodUserAggregation]); err != nil {
+		if err := runCmdWithBPFProfile(cmdByMethod[methodUserAggregation]); err != nil {
 			log.Println(err)
 			return exitCodeErr
 		}
 		log.Printf("Running method %q during period %q ...\n", methodKernelAggregation, period)
-		if err := runCmd(cmdByMethod[methodKernelAggregation]); err != nil {
+		if err := runCmdWithBPFProfile(cmdByMethod[methodKernelAggregation]); err != nil {
 			log.Println(err)
 			return exitCodeErr
 		}
@@ -134,6 +136,40 @@ func disableBPFProfile() error {
 	return nil
 }
 
+// BpfProgramStats is a stattistics of BPF program.
+type BpfProgramStats struct {
+	Name     string        `json:"name"`
+	RunCount uint          `json:"run_count"`
+	RunTime  time.Duration `json:"run_time"`
+}
+
+func getBPFStats() (map[int]*BpfProgramStats, error) {
+	resp, err := http.Get("http://localhost:6060/bpf/stats")
+	if err != nil {
+		return nil, xerrors.Errorf("could not get bpf stats: %w", err)
+	}
+	stats := map[int]*BpfProgramStats{}
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		return nil, xerrors.Errorf("could not decode json body bpf stats: %w", err)
+	}
+	return stats, nil
+}
+
+func printBPFStats(stats map[int]*BpfProgramStats) {
+	fmt.Println("--- BPF stats ---")
+	for _, stat := range stats {
+		if stat.RunCount == 0 {
+			continue
+		}
+		avgRunTime := stat.RunTime / time.Duration(stat.RunCount)
+		fmt.Printf("name:%s run_cnt:%d avg_run_time_ns:%d\n",
+			stat.Name,
+			stat.RunCount,
+			avgRunTime.Nanoseconds(),
+		)
+	}
+}
+
 func measureCPUStats(pid int) (*cpuStat, error) {
 	proc, err := process.NewProcess(int32(pid))
 	if err != nil {
@@ -167,16 +203,40 @@ func measureCPUStats(pid int) (*cpuStat, error) {
 	return stat, nil
 }
 
-func runCmdWithProfile(args []string) error {
-	enableBPFProfile()
-	defer disableBPFProfile()
-	if err := runCmd(args); err != nil {
-		return err
+func runCmdWithBPFProfile(args []string) error {
+	if bpfProfile {
+		enableBPFProfile()
+		defer disableBPFProfile()
+		args = append(args, "-prof")
 	}
-	return nil
+	fn := func(pid int) {
+		stat, err := measureCPUStats(pid)
+		if err != nil {
+			log.Fatal(err)
+		}
+		stat.PrintReport()
+
+		bpfStat, err := getBPFStats()
+		if err != nil {
+			log.Fatal(err)
+		}
+		printBPFStats(bpfStat)
+	}
+	return runCmdWithReport(args, fn)
 }
 
 func runCmd(args []string) error {
+	fn := func(pid int) {
+		stat, err := measureCPUStats(pid)
+		if err != nil {
+			log.Fatal(err)
+		}
+		stat.PrintReport()
+	}
+	return runCmdWithReport(args, fn)
+}
+
+func runCmdWithReport(args []string, reportFn func(pid int)) error {
 	if len(args) == 0 {
 		return errors.New("args length should be > 0")
 	}
@@ -190,11 +250,7 @@ func runCmd(args []string) error {
 	go func() {
 		time.Sleep(period)
 
-		stat, err := measureCPUStats(cmd.Process.Pid)
-		if err != nil {
-			log.Fatal(err)
-		}
-		stat.PrintReport()
+		reportFn(cmd.Process.Pid)
 
 		if err := cmd.Process.Kill(); err != nil {
 			time.Sleep(1 * time.Second)
