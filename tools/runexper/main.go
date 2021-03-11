@@ -33,12 +33,14 @@ const (
 	spawnCtnrServerCmd1 = "./spawnctnr -flavor server -containers %d"
 	spawnCtnrClientCmd1 = "./connperf connect %s --show-only-results $(curl -sS http://10.0.150.2:8080/hostports)"
 	runTracerCmd        = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -method all"
+	killConnperfCmd     = "sudo pkill -INT connperf"
 	killSpawnCtnrCmd    = "sudo pkill -INT spawnctnr"
 )
 
 var (
 	experFlavor string
 	protocol    string
+	bpfProf     bool
 )
 
 func init() {
@@ -46,6 +48,7 @@ func init() {
 
 	flag.StringVar(&experFlavor, "exper-flavor", experFlavorCPULoad, "experiment flavor")
 	flag.StringVar(&protocol, "protocol", "all", "protocol (tcp or udp)")
+	flag.BoolVar(&bpfProf, "bpf-profile", false, "bpf prof for conntop")
 	flag.Parse()
 }
 
@@ -94,6 +97,9 @@ func printCmdOut(in io.Reader, host string) {
 
 func runTracer(ctx context.Context, period time.Duration) error {
 	tracerCmd := runTracerCmd + " " + fmt.Sprintf("-period %s", period)
+	if bpfProf {
+		tracerCmd += " " + "-bpf-profile"
+	}
 
 	var wg sync.WaitGroup
 
@@ -155,7 +161,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	go printCmdOut(out2, defaultClientHost)
 
 	cleanup := func() {
-		sshServerCmd(ctx, killSpawnCtnrCmd)
+		sshServerCmd(ctx, killConnperfCmd)
 		cmd2.Process.Signal(os.Interrupt)
 	}
 
