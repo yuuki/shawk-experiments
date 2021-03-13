@@ -263,21 +263,25 @@ func runCPULoadCtnrsEach(ctx context.Context, containers int, connperfClientFlag
 }
 
 func runCPULoadCtnrs(ctx context.Context) error {
+	variants := []int{200, 400, 600, 800, 1000}
+	connections := 10000
+
 	if protocol == "all" || protocol == "tcp" {
-		variants := []int{1, 50, 100, 150, 200}
 		// tcp
 		// - ephemeral
 		for _, containers := range variants {
-			rate := 10000 / containers
+			rate := connections / containers
 			flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
 			log.Println("parameter", flag)
 			if err := runCPULoadCtnrsEach(ctx, containers, flag); err != nil {
 				return err
 			}
 		}
+	}
+	if protocol == "all" || protocol == "udp" {
 		// udp
 		for _, containers := range variants {
-			rate := 10000 / containers
+			rate := connections / containers
 			flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
 			log.Println("parameter", flag)
 			if err := runCPULoadCtnrsEach(ctx, containers, flag); err != nil {
