@@ -32,17 +32,19 @@ const (
 	defaultPeriod     = 60 * time.Second
 	defaultContainers = 10
 
-	connperfImage    = "ghcr.io/yuuki/connperf:latest"
-	defaultClientCmd = "connect --proto tcp --type ephemeral --rate 1000"
-	defaultServerCmd = "serve -l 0.0.0.0:9100"
+	connperfImage     = "ghcr.io/yuuki/connperf:latest"
+	defaultClientCmd  = "connect --proto tcp --type ephemeral --rate 1000"
+	defaultServerPort = "9100"
+
+	startContainerPort = 9000
 )
 
 var (
-	flavor     string
-	period     time.Duration
-	containers int
-	clientCmd  string
-	serverCmd  string
+	flavor      string
+	period      time.Duration
+	containers  int
+	clientCmd   string
+	hostNetwork bool
 )
 
 func init() {
@@ -52,7 +54,7 @@ func init() {
 	flag.DurationVar(&period, "period", defaultPeriod, "period")
 	flag.IntVar(&containers, "containers", defaultContainers, "the number of containers")
 	flag.StringVar(&clientCmd, "client-cmd", defaultClientCmd, "connperf client command line option")
-	flag.StringVar(&serverCmd, "server-cmd", defaultServerCmd, "connperf server command line option")
+	flag.BoolVar(&hostNetwork, "host-network", false, "enable docker host network")
 	flag.Parse()
 }
 
@@ -122,16 +124,29 @@ func spawnContainers(ctx context.Context) error {
 }
 
 func spawn(ctx context.Context, cli *client.Client, i int) error {
-	var cmd []string
+	var (
+		networkMode container.NetworkMode = "bridge"
+	)
+	if hostNetwork {
+		networkMode = "host"
+	}
+
+	var (
+		cmd        []string
+		serverPort = defaultServerPort
+	)
 	switch flavor {
 	case "client":
 		cmd = strings.Split(clientCmd, " ")
 	case "server":
-		cmd = strings.Split(serverCmd, " ")
+		if hostNetwork {
+			serverPort = fmt.Sprintf("%d", startContainerPort+i)
+		}
+		cmd = []string{"serve", "-l", "0.0.0.0:" + serverPort}
 	}
 
-	tcp, _ := nat.NewPort("tcp", "9100")
-	udp, _ := nat.NewPort("udp", "9100")
+	tcp, _ := nat.NewPort("tcp", serverPort)
+	udp, _ := nat.NewPort("udp", serverPort)
 	portSet := nat.PortSet{tcp: struct{}{}, udp: struct{}{}}
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:        connperfImage,
@@ -139,6 +154,8 @@ func spawn(ctx context.Context, cli *client.Client, i int) error {
 		Tty:          false,
 		ExposedPorts: portSet,
 	}, &container.HostConfig{
+		NetworkMode: networkMode,
+		AutoRemove:  true,
 		PortBindings: nat.PortMap{
 			tcp: []nat.PortBinding{
 				{HostIP: "0.0.0.0"},
@@ -189,16 +206,9 @@ func getContainerHostPorts(cli *client.Client, localip string) ([]string, error)
 	}
 	uniqPorts := make(map[string]struct{})
 	for _, ctnr := range ctnrs {
-		resp, err := cli.ContainerInspect(ctx, ctnr.ID)
-		if err != nil {
-			return []string{}, xerrors.Errorf(
-				"failed to inspect container (%q): %w", ctnr.ID, err)
-		}
-		for _, portBindings := range resp.NetworkSettings.Ports {
-			for _, pb := range portBindings {
-				port := localip + ":" + pb.HostPort
-				uniqPorts[port] = struct{}{}
-			}
+		for _, port := range ctnr.Ports {
+			port := localip + ":" + string(port.PublicPort)
+			uniqPorts[port] = struct{}{}
 		}
 	}
 	ports := make([]string, 0, len(uniqPorts))
@@ -241,12 +251,23 @@ func serveHTTP() error {
 	}
 
 	http.HandleFunc("/hostports", func(w http.ResponseWriter, req *http.Request) {
-		ports, err := getContainerHostPorts(cli, localip)
-		if err != nil {
-			log.Println(err)
-			io.WriteString(w, err.Error())
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+		var (
+			ports []string
+			err   error
+		)
+		if hostNetwork {
+			for i := 0; i < containers; i++ {
+				ports = append(ports,
+					fmt.Sprintf("%s:%d", localip, startContainerPort+i))
+			}
+		} else {
+			ports, err = getContainerHostPorts(cli, localip)
+			if err != nil {
+				log.Println(err)
+				io.WriteString(w, err.Error())
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 		}
 		w.WriteHeader(http.StatusOK)
 		for _, port := range ports {
