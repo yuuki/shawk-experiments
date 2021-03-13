@@ -216,11 +216,13 @@ func runCmdWithBPFProfile(args []string) error {
 		}
 		stat.PrintReport()
 
-		bpfStat, err := getBPFStats()
-		if err != nil {
-			log.Fatal(err)
+		if bpfProfile {
+			bpfStat, err := getBPFStats()
+			if err != nil {
+				log.Fatal(err)
+			}
+			printBPFStats(bpfStat)
 		}
-		printBPFStats(bpfStat)
 	}
 	return runCmdWithReport(args, fn)
 }
