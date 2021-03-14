@@ -174,6 +174,10 @@ func spawn(ctx context.Context, cli *client.Client, i int) error {
 			Force: true,
 		})
 		if err != nil {
+			if strings.Contains(err.Error(), "is already in progress") {
+				// skip error when container command process has already exited.
+				return
+			}
 			log.Printf("failed to remove container: %s\n", err)
 		}
 	}()
