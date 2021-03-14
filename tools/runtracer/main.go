@@ -66,33 +66,33 @@ func run() int {
 	switch method {
 	case methodSnapshotPolling:
 		if err := runCmd(cmdByMethod[methodSnapshotPolling]); err != nil {
-			log.Println(err)
+			log.Printf("%+v\n", err)
 			return exitCodeErr
 		}
 	case methodUserAggregation:
 		if err := runCmdWithBPFProfile(cmdByMethod[methodUserAggregation]); err != nil {
-			log.Println(err)
+			log.Printf("%+v\n", err)
 			return exitCodeErr
 		}
 	case methodKernelAggregation:
 		if err := runCmdWithBPFProfile(cmdByMethod[methodKernelAggregation]); err != nil {
-			log.Println(err)
+			log.Printf("%+v\n", err)
 			return exitCodeErr
 		}
 	case methodAll:
 		log.Printf("Running method %q during period %q ...\n", methodSnapshotPolling, period)
 		if err := runCmd(cmdByMethod[methodSnapshotPolling]); err != nil {
-			log.Println(err)
+			log.Printf("%+v\n", err)
 			return exitCodeErr
 		}
 		log.Printf("Running method %q during period %q ...\n", methodUserAggregation, period)
 		if err := runCmdWithBPFProfile(cmdByMethod[methodUserAggregation]); err != nil {
-			log.Println(err)
+			log.Printf("%+v\n", err)
 			return exitCodeErr
 		}
 		log.Printf("Running method %q during period %q ...\n", methodKernelAggregation, period)
 		if err := runCmdWithBPFProfile(cmdByMethod[methodKernelAggregation]); err != nil {
-			log.Println(err)
+			log.Printf("%+v\n", err)
 			return exitCodeErr
 		}
 	default:
@@ -246,7 +246,7 @@ func runCmdWithReport(args []string, reportFn func(pid int)) error {
 	cmd := exec.Command(args[0], args[1:]...)
 	log.Printf("Kicking %q ...\n", strings.Join(cmd.Args, " "))
 	if err := cmd.Start(); err != nil {
-		return err
+		return xerrors.Errorf("failed start cmd %s: %w", cmd, err)
 	}
 
 	go func() {
