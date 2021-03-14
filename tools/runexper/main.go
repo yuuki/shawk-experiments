@@ -32,21 +32,25 @@ const (
 	connperfClientCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect %s --show-only-results 10.0.150.2:9100"
 	spawnCtnrServerCmd1 = "./spawnctnr -flavor server -containers %d -host-network"
 	spawnCtnrClientCmd1 = "./connperf connect %s --show-only-results $(curl -sS http://10.0.150.2:8080/hostports)"
+	spawnCtnrServerCmd2 = connperfServerCmd
+	spawnCtnrClientCmd2 = "./spawnctnr -flavor client -containers %d -host-network -client-cmd 'connect %s --show-only-results 10.0.150.2:9100'"
 	runTracerCmd        = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -method all"
 	killConnperfCmd     = "sudo pkill -INT connperf"
 	killSpawnCtnrCmd    = "sudo pkill -INT spawnctnr"
 )
 
 var (
-	experFlavor string
-	protocol    string
-	bpfProf     bool
+	experFlavor     string
+	spawnCtnrFlavor string
+	protocol        string
+	bpfProf         bool
 )
 
 func init() {
 	log.SetFlags(0)
 
 	flag.StringVar(&experFlavor, "exper-flavor", experFlavorCPULoad, "experiment flavor")
+	flag.StringVar(&spawnCtnrFlavor, "spawnctnr-flavor", "all", "spawnctnr flavor 'server' or 'client' or 'all")
 	flag.StringVar(&protocol, "protocol", "all", "protocol (tcp or udp)")
 	flag.BoolVar(&bpfProf, "bpf-profile", false, "bpf prof for conntop")
 	flag.Parse()
@@ -180,10 +184,12 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 }
 
 func runCPULoad(ctx context.Context) error {
+	variants := []int{5000, 10000, 15000, 20000}
+
 	if protocol == "all" || protocol == "tcp" {
 		// tcp
 		// - ephemeral
-		for _, rate := range []int{5000, 10000, 15000, 20000} {
+		for _, rate := range variants {
 			flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
 			log.Println("parameter", flag)
 			if err := runCPULoadEach(ctx, flag); err != nil {
@@ -192,7 +198,7 @@ func runCPULoad(ctx context.Context) error {
 		}
 		// tcp
 		// - persistent
-		for _, conns := range []int{5000, 10000, 15000, 20000} {
+		for _, conns := range variants {
 			flag := fmt.Sprintf("--proto tcp --flavor persistent --connections %d --duration 1200s", conns)
 			log.Println("parameter", flag)
 			if err := runCPULoadEach(ctx, flag); err != nil {
@@ -202,7 +208,7 @@ func runCPULoad(ctx context.Context) error {
 	}
 	if protocol == "all" || protocol == "udp" {
 		// udp
-		for _, rate := range []int{5000, 10000, 15000, 20000} {
+		for _, rate := range variants {
 			flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
 			log.Println("parameter", flag)
 			if err := runCPULoadEach(ctx, flag); err != nil {
@@ -214,7 +220,7 @@ func runCPULoad(ctx context.Context) error {
 	return nil
 }
 
-func runCPULoadCtnrsEach(ctx context.Context, containers int, connperfClientFlag string) error {
+func runCPULoadServerCtnrsEach(ctx context.Context, containers int, connperfClientFlag string) error {
 	var wg sync.WaitGroup
 	spawnCtnrServerCmd := fmt.Sprintf(spawnCtnrServerCmd1, containers)
 	wg.Add(1)
@@ -262,6 +268,53 @@ func runCPULoadCtnrsEach(ctx context.Context, containers int, connperfClientFlag
 	return nil
 }
 
+func runCPULoadClientCtnrsEach(ctx context.Context, containers int, connperfClientFlag string) error {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	cmd1, out1, err := sshServerCmd(ctx, spawnCtnrServerCmd2)
+	if err != nil {
+		return err
+	}
+	go func() {
+		defer wg.Done()
+		waitCmd(cmd1, defaultServerHost, spawnCtnrServerCmd2)
+	}()
+	go printCmdOut(out1, defaultServerHost)
+
+	// wait server
+	time.Sleep(5 * time.Second)
+
+	wg.Add(1)
+	spawnCtnrClientCmd := fmt.Sprintf(spawnCtnrClientCmd2, containers, connperfClientFlag)
+	cmd2, out2, err := sshClientCmd(ctx, spawnCtnrClientCmd)
+	if err != nil {
+		return err
+	}
+	go func() {
+		defer wg.Done()
+		waitCmd(cmd2, defaultClientHost, spawnCtnrClientCmd)
+	}()
+	go printCmdOut(out2, defaultClientHost)
+
+	cleanup := func() {
+		sshClientCmd(ctx, killSpawnCtnrCmd) // kill client
+		cmd1.Process.Signal(os.Interrupt)   // kill server
+	}
+
+	// wait client
+	time.Sleep(5*time.Second + time.Duration(100*containers)*time.Millisecond)
+
+	if err := runTracer(ctx, 10*time.Second); err != nil {
+		cleanup()
+		return err
+	}
+
+	cleanup()
+	wg.Wait()
+
+	return nil
+}
+
 func runCPULoadCtnrs(ctx context.Context) error {
 	variants := []int{200, 400, 600, 800, 1000}
 	connections := 10000
@@ -273,8 +326,16 @@ func runCPULoadCtnrs(ctx context.Context) error {
 			rate := connections / containers
 			flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
 			log.Println("parameter", flag)
-			if err := runCPULoadCtnrsEach(ctx, containers, flag); err != nil {
-				return err
+			switch spawnCtnrFlavor {
+			case "server":
+				if err := runCPULoadServerCtnrsEach(ctx, containers, flag); err != nil {
+					return err
+				}
+			case "client":
+				if err := runCPULoadClientCtnrsEach(ctx, containers, flag); err != nil {
+					return err
+				}
+			default:
 			}
 		}
 	}
@@ -284,8 +345,16 @@ func runCPULoadCtnrs(ctx context.Context) error {
 			rate := connections / containers
 			flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
 			log.Println("parameter", flag)
-			if err := runCPULoadCtnrsEach(ctx, containers, flag); err != nil {
-				return err
+			switch spawnCtnrFlavor {
+			case "server":
+				if err := runCPULoadServerCtnrsEach(ctx, containers, flag); err != nil {
+					return err
+				}
+			case "client":
+				if err := runCPULoadClientCtnrsEach(ctx, containers, flag); err != nil {
+					return err
+				}
+			default:
 			}
 		}
 	}
@@ -382,11 +451,11 @@ func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
 }
 
 func runLatency(ctx context.Context) error {
-	// TODO: no-runtracer
+	variants := []int{5000, 10000, 15000, 20000}
 
 	if protocol == "all" || protocol == "tcp" {
 		// - ephemeral
-		for _, rate := range []int{5000, 10000, 15000, 20000} {
+		for _, rate := range variants {
 			flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 10s", rate)
 			log.Println("parameter", flag)
 			if err := runLatencyWithoutTracer(ctx, flag); err != nil {
@@ -398,7 +467,7 @@ func runLatency(ctx context.Context) error {
 		}
 	}
 	if protocol == "all" || protocol == "udp" {
-		for _, rate := range []int{5000, 10000, 15000, 20000} {
+		for _, rate := range variants {
 			flag := fmt.Sprintf("--proto udp --rate %d --duration 10s", rate)
 			log.Println("parameter", flag)
 			if err := runLatencyWithoutTracer(ctx, flag); err != nil {
