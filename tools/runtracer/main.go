@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -173,19 +174,19 @@ func printBPFStats(stats map[int]*BpfProgramStats) {
 func measureCPUStats(pid int) (*cpuStat, error) {
 	proc, err := process.NewProcess(int32(pid))
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("could not create new process for measuring: %w", err)
 	}
 
 	lastCPUTimes, err := proc.Times()
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("could not get cpu times : %w", err)
 	}
 
 	time.Sleep(period)
 
 	cpuTimes, err := proc.Times()
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("could not get cpu times : %w", err)
 	}
 
 	deltaCPUUser := cpuTimes.User - lastCPUTimes.User
@@ -209,50 +210,65 @@ func runCmdWithBPFProfile(args []string) error {
 		defer disableBPFProfile()
 		args = append(args, "-prof")
 	}
-	fn := func(pid int) {
+	fn := func(pid int) error {
 		stat, err := measureCPUStats(pid)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 		stat.PrintReport()
 
 		if bpfProfile {
 			bpfStat, err := getBPFStats()
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 			printBPFStats(bpfStat)
 		}
+		return nil
 	}
 	return runCmdWithReport(args, fn)
 }
 
 func runCmd(args []string) error {
-	fn := func(pid int) {
+	fn := func(pid int) error {
 		stat, err := measureCPUStats(pid)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 		stat.PrintReport()
+		return nil
 	}
 	return runCmdWithReport(args, fn)
 }
 
-func runCmdWithReport(args []string, reportFn func(pid int)) error {
+func runCmdWithReport(args []string, reportFn func(pid int) error) error {
 	if len(args) == 0 {
 		return errors.New("args length should be > 0")
 	}
 
 	cmd := exec.Command(args[0], args[1:]...)
 	log.Printf("Kicking %q ...\n", strings.Join(cmd.Args, " "))
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return xerrors.Errorf("failed to create stderr pipe: %w", err)
+	}
+	go func() {
+		// put errors of tracer cmd
+		w := bufio.NewWriter(os.Stderr)
+		s := bufio.NewScanner(stderr)
+		for s.Scan() {
+			fmt.Fprintln(w, s.Text())
+		}
+		w.Flush()
+	}()
 	if err := cmd.Start(); err != nil {
 		return xerrors.Errorf("failed start cmd %s: %w", cmd, err)
 	}
 
 	go func() {
-		time.Sleep(period)
-
-		reportFn(cmd.Process.Pid)
+		if err := reportFn(cmd.Process.Pid); err != nil {
+			log.Fatalf("%+v", err)
+		}
 
 		if err := cmd.Process.Kill(); err != nil {
 			time.Sleep(1 * time.Second)
