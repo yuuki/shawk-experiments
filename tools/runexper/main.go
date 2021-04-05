@@ -37,6 +37,9 @@ const (
 	runTracerCmd        = "sudo GOMAXPROCS=1 taskset -a -c 4,5 ./runtracer -method all"
 	killConnperfCmd     = "sudo pkill -INT connperf"
 	killSpawnCtnrCmd    = "sudo pkill -INT spawnctnr"
+
+	pruneDocker   = "docker system prune -f"
+	restartDocker = "sudo systemctl restart docker"
 )
 
 var (
@@ -482,6 +485,43 @@ func runLatency(ctx context.Context) error {
 	return nil
 }
 
+func cleanupDocker(ctx context.Context) error {
+	wg := sync.WaitGroup{}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c1, _, err := sshClientCmd(ctx, pruneDocker)
+		if err != nil {
+			log.Println(err)
+		}
+		c1.Wait()
+		c2, _, err := sshClientCmd(ctx, restartDocker)
+		if err != nil {
+			log.Println(err)
+		}
+		c2.Wait()
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c3, _, err := sshServerCmd(ctx, pruneDocker)
+		if err != nil {
+			log.Println(err)
+		}
+		c3.Wait()
+		c4, _, err := sshServerCmd(ctx, restartDocker)
+		if err != nil {
+			log.Println(err)
+		}
+		c4.Wait()
+	}()
+
+	wg.Wait()
+	return nil
+}
+
 func run() int {
 	sig := make(chan os.Signal, 1)
 	defer close(sig)
@@ -503,6 +543,9 @@ func run() int {
 	case experFlavorCPULoad:
 		err = runCPULoad(ctx)
 	case experFlavorCPULoadCtnrs:
+		if err := cleanupDocker(ctx); err != nil {
+			return exitCodeErr
+		}
 		err = runCPULoadCtnrs(ctx)
 	case experFlavorLatency:
 		err = runLatency(ctx)
