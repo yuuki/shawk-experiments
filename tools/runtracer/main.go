@@ -21,12 +21,11 @@ const (
 	exitCodeOk  = 0
 	exitCodeErr = -1
 
-	methodSnapshotPolling   = "snapshot-polling"
-	methodUserAggregation   = "user-aggregation"
-	methodKernelAggregation = "kernel-aggregation"
-	methodAll               = "all"
-
-	intervalMeasurement = 1 * time.Second
+	methodSnapshotPolling         = "snapshot-polling"
+	methodUserAggregation         = "user-aggregation"
+	methodKernelAggregation       = "kernel-aggregation"
+	methodInFlowKernelAggregation = "in-flow-kernel-aggregation"
+	methodAll                     = "all"
 )
 
 var (
@@ -35,9 +34,10 @@ var (
 	bpfProfile bool
 
 	cmdByMethod = map[string][]string{
-		methodSnapshotPolling:   []string{"./lstf", "-p", "-n", "--watch=1"},
-		methodUserAggregation:   []string{"./conntop", "-user-aggr", "-interval", "1s"},
-		methodKernelAggregation: []string{"./conntop", "-kernel-aggr", "-interval", "1s"},
+		methodSnapshotPolling:         []string{"./lstf", "-p", "-n", "--watch=1"},
+		methodUserAggregation:         []string{"./conntop", "-user-aggr", "-interval", "1s"},
+		methodKernelAggregation:       []string{"./conntop", "-kernel-aggr", "-interval", "1s"},
+		methodInFlowKernelAggregation: []string{"./conntop", "-in-flow-aggr", "-interval", "1s"},
 	}
 )
 
@@ -80,6 +80,11 @@ func run() int {
 			log.Printf("%+v\n", err)
 			return exitCodeErr
 		}
+	case methodInFlowKernelAggregation:
+		if err := runCmdWithBPFProfile(cmdByMethod[methodInFlowKernelAggregation]); err != nil {
+			log.Printf("%+v\n", err)
+			return exitCodeErr
+		}
 	case methodAll:
 		log.Printf("Running method %q during period %q ...\n", methodSnapshotPolling, period)
 		if err := runCmd(cmdByMethod[methodSnapshotPolling]); err != nil {
@@ -93,6 +98,11 @@ func run() int {
 		}
 		log.Printf("Running method %q during period %q ...\n", methodKernelAggregation, period)
 		if err := runCmdWithBPFProfile(cmdByMethod[methodKernelAggregation]); err != nil {
+			log.Printf("%+v\n", err)
+			return exitCodeErr
+		}
+		log.Printf("Running method %q during period %q ...\n", methodInFlowKernelAggregation, period)
+		if err := runCmdWithBPFProfile(cmdByMethod[methodInFlowKernelAggregation]); err != nil {
 			log.Printf("%+v\n", err)
 			return exitCodeErr
 		}
