@@ -34,10 +34,10 @@ var (
 	bpfProfile bool
 
 	cmdByMethod = map[string][]string{
-		methodSnapshotPolling:         []string{"./lstf", "-p", "-n", "--watch=1"},
-		methodUserAggregation:         []string{"./conntop", "-user-aggr", "-interval", "1s"},
-		methodKernelAggregation:       []string{"./conntop", "-kernel-aggr", "-interval", "1s"},
-		methodInFlowKernelAggregation: []string{"./conntop", "-in-flow-aggr", "-interval", "1s"},
+		methodSnapshotPolling:         {"./lstf", "-p", "-n", "--watch=1"},
+		methodUserAggregation:         {"./conntop", "-user-aggr", "-interval", "1s"},
+		methodKernelAggregation:       {"./conntop", "-kernel-aggr", "-interval", "1s"},
+		methodInFlowKernelAggregation: {"./conntop", "-in-flow-aggr", "-interval", "1s"},
 	}
 )
 
