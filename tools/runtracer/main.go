@@ -134,7 +134,7 @@ func (s *cpuStat) PrintReport() {
 func enableBPFProfile() error {
 	cmd := exec.Command("sysctl", "-w", "kernel.bpf_stats_enabled=1")
 	if err := cmd.Run(); err != nil {
-		return xerrors.Errorf("enable bpf profile error: %w")
+		return xerrors.Errorf("enable bpf profile error: %w", err)
 	}
 	return nil
 }
@@ -142,7 +142,7 @@ func enableBPFProfile() error {
 func disableBPFProfile() error {
 	cmd := exec.Command("sysctl", "-w", "kernel.bpf_stats_enabled=0")
 	if err := cmd.Run(); err != nil {
-		return xerrors.Errorf("enable bpf profile error: %w")
+		return xerrors.Errorf("enable bpf profile error: %w", err)
 	}
 	return nil
 }
