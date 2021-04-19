@@ -48,6 +48,7 @@ const (
 var (
 	experFlavor     string
 	spawnCtnrFlavor string
+	protoFlavor     string
 	protocol        string
 	bpfProf         bool
 )
@@ -58,6 +59,7 @@ func init() {
 	flag.StringVar(&experFlavor, "exper-flavor", experFlavorCPULoad, "experiment flavor")
 	flag.StringVar(&spawnCtnrFlavor, "spawnctnr-flavor", "all", "spawnctnr flavor 'server' or 'client' or 'all")
 	flag.StringVar(&protocol, "protocol", "all", "protocol (tcp or udp)")
+	flag.StringVar(&protoFlavor, "protocol-flavor", "all", "tcp (ephemeral or peersistent), udp")
 	flag.BoolVar(&bpfProf, "bpf-profile", false, "bpf prof for conntop")
 	flag.Parse()
 }
@@ -193,32 +195,33 @@ func runCPULoad(ctx context.Context) error {
 	variants := []int{5000, 10000, 15000, 20000}
 
 	if protocol == "all" || protocol == "tcp" {
-		// tcp
-		// - ephemeral
-		for _, rate := range variants {
-			flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
-			log.Println("parameter", flag)
-			if err := runCPULoadEach(ctx, flag); err != nil {
-				return err
+		if protoFlavor == "all" || protoFlavor == "ephemeral" {
+			for _, rate := range variants {
+				flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
+				log.Println("parameter", flag)
+				if err := runCPULoadEach(ctx, flag); err != nil {
+					return err
+				}
 			}
 		}
-		// tcp
-		// - persistent
-		for _, conns := range variants {
-			flag := fmt.Sprintf("--proto tcp --flavor persistent --rate %d --connections %d --duration 1200s", connperfPersistentRate, conns)
-			log.Println("parameter", flag)
-			if err := runCPULoadEach(ctx, flag); err != nil {
-				return err
+		if protoFlavor == "all" || protoFlavor == "persistent" {
+			for _, conns := range variants {
+				flag := fmt.Sprintf("--proto tcp --flavor persistent --rate %d --connections %d --duration 1200s", connperfPersistentRate, conns)
+				log.Println("parameter", flag)
+				if err := runCPULoadEach(ctx, flag); err != nil {
+					return err
+				}
 			}
 		}
 	}
 	if protocol == "all" || protocol == "udp" {
-		// udp
-		for _, rate := range variants {
-			flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
-			log.Println("parameter", flag)
-			if err := runCPULoadEach(ctx, flag); err != nil {
-				return err
+		if protoFlavor == "all" || protoFlavor == "udp" {
+			for _, rate := range variants {
+				flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
+				log.Println("parameter", flag)
+				if err := runCPULoadEach(ctx, flag); err != nil {
+					return err
+				}
 			}
 		}
 	}
