@@ -148,6 +148,7 @@ func spawn(ctx context.Context, cli *client.Client, i int) error {
 	tcp, _ := nat.NewPort("tcp", serverPort)
 	udp, _ := nat.NewPort("udp", serverPort)
 	portSet := nat.PortSet{tcp: struct{}{}, udp: struct{}{}}
+	init := true
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:        connperfImage,
 		Cmd:          cmd,
@@ -164,6 +165,7 @@ func spawn(ctx context.Context, cli *client.Client, i int) error {
 				{HostIP: "0.0.0.0"},
 			},
 		},
+		Init: &init,
 	}, nil, nil, fmt.Sprintf("connperf-%s-%04d", flavor, i))
 	if err != nil {
 		return xerrors.Errorf("failed to create container: %w", err)
