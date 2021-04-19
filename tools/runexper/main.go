@@ -173,7 +173,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	}
 
 	// wait client
-	time.Sleep(5 * time.Second)
+	time.Sleep(10 * time.Second)
 
 	if err := runTracer(ctx, 10*time.Second); err != nil {
 		cleanup()
