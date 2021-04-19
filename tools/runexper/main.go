@@ -28,7 +28,8 @@ const (
 	experFlavorCPULoadCtnrs = "cpu-load-ctnrs"
 	experFlavorLatency      = "latency"
 
-	runTracerPeriod = 30 * time.Second
+	runTracerPeriod        = 30 * time.Second
+	connperfPersistentRate = 5
 
 	connperfServerCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf serve -l 0.0.0.0:9100"
 	connperfClientCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect %s --show-only-results 10.0.150.2:9100"
@@ -204,7 +205,7 @@ func runCPULoad(ctx context.Context) error {
 		// tcp
 		// - persistent
 		for _, conns := range variants {
-			flag := fmt.Sprintf("--proto tcp --flavor persistent --connections %d --duration 1200s", conns)
+			flag := fmt.Sprintf("--proto tcp --flavor persistent --rate %d --connections %d --duration 1200s", connperfPersistentRate, conns)
 			log.Println("parameter", flag)
 			if err := runCPULoadEach(ctx, flag); err != nil {
 				return err
