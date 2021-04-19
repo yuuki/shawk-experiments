@@ -28,6 +28,8 @@ const (
 	experFlavorCPULoadCtnrs = "cpu-load-ctnrs"
 	experFlavorLatency      = "latency"
 
+	runTracerPeriod = 30 * time.Second
+
 	connperfServerCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf serve -l 0.0.0.0:9100"
 	connperfClientCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0,3 ./connperf connect %s --show-only-results 10.0.150.2:9100"
 	spawnCtnrServerCmd1 = "./spawnctnr -flavor server -containers %d -host-network"
@@ -175,7 +177,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	// wait client
 	time.Sleep(10 * time.Second)
 
-	if err := runTracer(ctx, 10*time.Second); err != nil {
+	if err := runTracer(ctx, runTracerPeriod); err != nil {
 		cleanup()
 		return err
 	}
@@ -260,7 +262,7 @@ func runCPULoadServerCtnrsEach(ctx context.Context, containers int, connperfClie
 	// wait client
 	time.Sleep(10 * time.Second)
 
-	if err := runTracer(ctx, 10*time.Second); err != nil {
+	if err := runTracer(ctx, runTracerPeriod); err != nil {
 		cleanup()
 		return err
 	}
@@ -307,7 +309,7 @@ func runCPULoadClientCtnrsEach(ctx context.Context, containers int, connperfClie
 	// wait client
 	time.Sleep(5*time.Second + time.Duration(100*containers)*time.Millisecond)
 
-	if err := runTracer(ctx, 10*time.Second); err != nil {
+	if err := runTracer(ctx, runTracerPeriod); err != nil {
 		cleanup()
 		return err
 	}
