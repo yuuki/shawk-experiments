@@ -329,22 +329,39 @@ func runCPULoadCtnrs(ctx context.Context) error {
 	connections := 10000
 
 	if protocol == "all" || protocol == "tcp" {
-		// tcp
-		// - ephemeral
-		for _, containers := range variants {
-			rate := connections / containers
-			flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
-			log.Println("parameter", flag)
-			switch spawnCtnrFlavor {
-			case "server":
-				if err := runCPULoadServerCtnrsEach(ctx, containers, flag); err != nil {
-					return err
+		if protoFlavor == "all" || protoFlavor == "ephemeral" {
+			for _, containers := range variants {
+				rate := connections / containers
+				flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
+				log.Println("parameter", flag)
+				if spawnCtnrFlavor == "all" || spawnCtnrFlavor == "server" {
+					if err := runCPULoadServerCtnrsEach(ctx, containers, flag); err != nil {
+						return err
+					}
 				}
-			case "client":
-				if err := runCPULoadClientCtnrsEach(ctx, containers, flag); err != nil {
-					return err
+				if spawnCtnrFlavor == "all" || spawnCtnrFlavor == "client" {
+					if err := runCPULoadClientCtnrsEach(ctx, containers, flag); err != nil {
+						return err
+					}
 				}
-			default:
+			}
+		}
+
+		if protoFlavor == "all" || protoFlavor == "persistent" {
+			for _, containers := range variants {
+				rate := connections / containers
+				flag := fmt.Sprintf("--proto tcp --flavor persistent --connections %d --rate %d --duration 1200s", rate, connperfPersistentRate)
+				log.Println("parameter", flag)
+				if spawnCtnrFlavor == "all" || spawnCtnrFlavor == "server" {
+					if err := runCPULoadServerCtnrsEach(ctx, containers, flag); err != nil {
+						return err
+					}
+				}
+				if spawnCtnrFlavor == "all" || spawnCtnrFlavor == "client" {
+					if err := runCPULoadClientCtnrsEach(ctx, containers, flag); err != nil {
+						return err
+					}
+				}
 			}
 		}
 	}
@@ -354,16 +371,15 @@ func runCPULoadCtnrs(ctx context.Context) error {
 			rate := connections / containers
 			flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
 			log.Println("parameter", flag)
-			switch spawnCtnrFlavor {
-			case "server":
+			if spawnCtnrFlavor == "all" || spawnCtnrFlavor == "server" {
 				if err := runCPULoadServerCtnrsEach(ctx, containers, flag); err != nil {
 					return err
 				}
-			case "client":
+			}
+			if spawnCtnrFlavor == "all" || spawnCtnrFlavor == "client" {
 				if err := runCPULoadClientCtnrsEach(ctx, containers, flag); err != nil {
 					return err
 				}
-			default:
 			}
 		}
 	}
