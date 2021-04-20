@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +51,7 @@ var (
 	spawnCtnrFlavor string
 	protoFlavor     string
 	protocol        string
+	ctnrNumVars     []int
 	bpfProf         bool
 )
 
@@ -60,8 +62,15 @@ func init() {
 	flag.StringVar(&spawnCtnrFlavor, "spawnctnr-flavor", "all", "spawnctnr flavor 'server' or 'client' or 'all")
 	flag.StringVar(&protocol, "protocol", "all", "protocol (tcp or udp)")
 	flag.StringVar(&protoFlavor, "protocol-flavor", "all", "tcp (ephemeral or peersistent), udp")
+	var ctnrNums string
+	flag.StringVar(&ctnrNums, "ctnr-vars", "200,400,600,800,1000", "variants of the number of containers")
 	flag.BoolVar(&bpfProf, "bpf-profile", false, "bpf prof for conntop")
 	flag.Parse()
+
+	for _, s := range strings.Split(ctnrNums, ",") {
+		i, _ := strconv.Atoi(s)
+		ctnrNumVars = append(ctnrNumVars, i)
+	}
 }
 
 func sshCmd(ctx context.Context, host string, cmd string) (*exec.Cmd, io.ReadCloser, error) {
@@ -325,12 +334,11 @@ func runCPULoadClientCtnrsEach(ctx context.Context, containers int, connperfClie
 }
 
 func runCPULoadCtnrs(ctx context.Context) error {
-	variants := []int{200, 400, 600, 800, 1000}
 	connections := 10000
 
 	if protocol == "all" || protocol == "tcp" {
 		if protoFlavor == "all" || protoFlavor == "ephemeral" {
-			for _, containers := range variants {
+			for _, containers := range ctnrNumVars {
 				rate := connections / containers
 				flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
 				log.Println("parameter", flag)
@@ -348,7 +356,7 @@ func runCPULoadCtnrs(ctx context.Context) error {
 		}
 
 		if protoFlavor == "all" || protoFlavor == "persistent" {
-			for _, containers := range variants {
+			for _, containers := range ctnrNumVars {
 				rate := connections / containers
 				flag := fmt.Sprintf("--proto tcp --flavor persistent --connections %d --rate %d --duration 1200s", rate, connperfPersistentRate)
 				log.Println("parameter", flag)
@@ -367,7 +375,7 @@ func runCPULoadCtnrs(ctx context.Context) error {
 	}
 	if protocol == "all" || protocol == "udp" {
 		// udp
-		for _, containers := range variants {
+		for _, containers := range ctnrNumVars {
 			rate := connections / containers
 			flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
 			log.Println("parameter", flag)
