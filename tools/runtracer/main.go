@@ -159,6 +159,9 @@ func getBPFStats() (map[int]*BpfProgramStats, error) {
 	if err != nil {
 		return nil, xerrors.Errorf("could not get bpf stats: %w", err)
 	}
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("conntop /bpf/stats returns %d", resp.StatusCode)
+	}
 	stats := map[int]*BpfProgramStats{}
 	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
 		return nil, xerrors.Errorf("could not decode json body bpf stats: %w", err)
