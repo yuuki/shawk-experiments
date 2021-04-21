@@ -435,6 +435,10 @@ func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) err
 
 func prepareTracer(ctx context.Context, method string) (func(), *sync.WaitGroup, error) {
 	runTracerCmd := runTracerCmd + " -period 1200s" + " -method " + method
+	if bpfProf {
+		runTracerCmd += " " + "-bpf-profile"
+	}
+
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	cmd1, out1, err := sshServerCmd(ctx, runTracerCmd)
