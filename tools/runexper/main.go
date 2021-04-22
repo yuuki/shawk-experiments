@@ -51,6 +51,7 @@ var (
 	spawnCtnrFlavor string
 	protoFlavor     string
 	protocol        string
+	connNumVars     []int
 	ctnrNumVars     []int
 	bpfProf         bool
 )
@@ -61,12 +62,18 @@ func init() {
 	flag.StringVar(&experFlavor, "exper-flavor", experFlavorCPULoad, "experiment flavor")
 	flag.StringVar(&spawnCtnrFlavor, "spawnctnr-flavor", "all", "spawnctnr flavor 'server' or 'client' or 'all")
 	flag.StringVar(&protocol, "protocol", "all", "protocol (tcp or udp)")
-	flag.StringVar(&protoFlavor, "protocol-flavor", "all", "tcp (ephemeral or peersistent), udp")
+	flag.StringVar(&protoFlavor, "protocol-flavor", "all", "tcp (ephemeral or peesistent), udp")
+	var connNums string
+	flag.StringVar(&connNums, "conn-vars", "5000,10000,15000,20000", "variants of the number of connections")
 	var ctnrNums string
 	flag.StringVar(&ctnrNums, "ctnr-vars", "200,400,600,800,1000", "variants of the number of containers")
 	flag.BoolVar(&bpfProf, "bpf-profile", false, "bpf prof for conntop")
 	flag.Parse()
 
+	for _, s := range strings.Split(connNums, ",") {
+		i, _ := strconv.Atoi(s)
+		connNumVars = append(connNumVars, i)
+	}
 	for _, s := range strings.Split(ctnrNums, ",") {
 		i, _ := strconv.Atoi(s)
 		ctnrNumVars = append(ctnrNumVars, i)
@@ -201,7 +208,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 }
 
 func runCPULoad(ctx context.Context) error {
-	variants := []int{5000, 10000, 15000, 20000}
+	variants := connNumVars
 
 	if protocol == "all" || protocol == "tcp" {
 		if protoFlavor == "all" || protoFlavor == "ephemeral" {
@@ -488,7 +495,7 @@ func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
 }
 
 func runLatency(ctx context.Context) error {
-	variants := []int{5000, 10000, 15000, 20000}
+	variants := connNumVars
 
 	if protocol == "all" || protocol == "tcp" {
 		// - ephemeral
