@@ -123,8 +123,22 @@ func sshClientCmd(ctx context.Context, cmd string, wg *sync.WaitGroup) (func(), 
 	return stop, err
 }
 
-func sshServerCmd(ctx context.Context, cmd string) (*exec.Cmd, io.ReadCloser, error) {
-	return sshCmd(ctx, defaultServerHost, cmd)
+func sshServerCmd(ctx context.Context, cmd string, wg *sync.WaitGroup) (func(), error) {
+	ecmd, out, err := sshCmd(ctx, defaultServerHost, cmd)
+	if err != nil {
+		return func() {}, err
+	}
+	stop := func() {
+		ecmd.Process.Signal(os.Interrupt)
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		waitCmd(ecmd, defaultServerHost, cmd)
+	}()
+	go printCmdOut(out, defaultServerHost)
+
+	return stop, err
 }
 
 func waitCmd(c *exec.Cmd, host, cmd string) {
@@ -153,23 +167,17 @@ func runTracer(ctx context.Context, period time.Duration) error {
 
 	var wg sync.WaitGroup
 
-	cmd3, out3, err := sshServerCmd(ctx, tracerCmd)
+	stopServer, err := sshServerCmd(ctx, tracerCmd, &wg)
 	if err != nil {
 		return err
 	}
-	defer cmd3.Process.Signal(os.Interrupt)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd3, defaultServerHost, tracerCmd)
-	}()
-	go printCmdOut(out3, defaultServerHost)
+	defer stopServer()
 
-	stop, err := sshClientCmd(ctx, tracerCmd, &wg)
+	stopClient, err := sshClientCmd(ctx, tracerCmd, &wg)
 	if err != nil {
 		return err
 	}
-	defer stop()
+	defer stopClient()
 
 	// wait until tracer has finished
 	wg.Wait()
@@ -178,16 +186,10 @@ func runTracer(ctx context.Context, period time.Duration) error {
 
 func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	wg := sync.WaitGroup{}
-	wg.Add(1)
-	cmd1, out1, err := sshServerCmd(ctx, connperfServerCmd)
+	_, err := sshServerCmd(ctx, connperfServerCmd, &wg)
 	if err != nil {
 		return err
 	}
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd1, defaultServerHost, connperfServerCmd)
-	}()
-	go printCmdOut(out1, defaultServerHost)
 
 	// wait server
 	time.Sleep(5 * time.Second)
@@ -199,7 +201,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	}
 
 	cleanup := func() {
-		sshServerCmd(ctx, killConnperfCmd)
+		sshServerCmd(ctx, killConnperfCmd, &wg)
 		stop()
 	}
 
@@ -258,16 +260,10 @@ func runCPULoad(ctx context.Context) error {
 func runCPULoadServerCtnrsEach(ctx context.Context, containers int, connperfClientFlag string) error {
 	var wg sync.WaitGroup
 	spawnCtnrServerCmd := fmt.Sprintf(spawnCtnrServerCmd1, containers)
-	wg.Add(1)
-	cmd1, out1, err := sshServerCmd(ctx, spawnCtnrServerCmd)
+	_, err := sshServerCmd(ctx, spawnCtnrServerCmd, &wg)
 	if err != nil {
 		return err
 	}
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd1, defaultServerHost, spawnCtnrServerCmd)
-	}()
-	go printCmdOut(out1, defaultServerHost)
 
 	// wait server
 	time.Sleep(5*time.Second + time.Duration(100*containers)*time.Millisecond)
@@ -278,7 +274,7 @@ func runCPULoadServerCtnrsEach(ctx context.Context, containers int, connperfClie
 		return err
 	}
 	cleanup := func() {
-		sshServerCmd(ctx, killSpawnCtnrCmd)
+		sshServerCmd(ctx, killSpawnCtnrCmd, &wg)
 		stop()
 	}
 
@@ -298,16 +294,10 @@ func runCPULoadServerCtnrsEach(ctx context.Context, containers int, connperfClie
 
 func runCPULoadClientCtnrsEach(ctx context.Context, containers int, connperfClientFlag string) error {
 	var wg sync.WaitGroup
-	wg.Add(1)
-	cmd1, out1, err := sshServerCmd(ctx, spawnCtnrServerCmd2)
+	stopServer, err := sshServerCmd(ctx, spawnCtnrServerCmd2, &wg)
 	if err != nil {
 		return err
 	}
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd1, defaultServerHost, spawnCtnrServerCmd2)
-	}()
-	go printCmdOut(out1, defaultServerHost)
 
 	// wait server
 	time.Sleep(5 * time.Second)
@@ -320,7 +310,7 @@ func runCPULoadClientCtnrsEach(ctx context.Context, containers int, connperfClie
 
 	cleanup := func() {
 		sshClientCmd(ctx, killSpawnCtnrCmd, &wg) // kill client
-		cmd1.Process.Signal(os.Interrupt)        // kill server
+		stopServer()
 	}
 
 	// wait client
@@ -411,18 +401,11 @@ func runCPULoadCtnrs(ctx context.Context, connections int) error {
 func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) error {
 	var wg sync.WaitGroup
 
-	cmd3, out3, err := sshServerCmd(ctx, connperfServerCmd)
+	stopServer, err := sshServerCmd(ctx, connperfServerCmd, &wg)
 	if err != nil {
 		return err
 	}
-	defer cmd3.Process.Signal(os.Interrupt) // server kill
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd3, defaultServerHost, connperfServerCmd)
-	}()
-	go printCmdOut(out3, defaultServerHost)
+	defer stopServer()
 
 	// wait server
 	time.Sleep(5 * time.Second)
@@ -447,16 +430,10 @@ func prepareTracer(ctx context.Context, method string) (func(), *sync.WaitGroup,
 	}
 
 	wg := sync.WaitGroup{}
-	wg.Add(1)
-	cmd1, out1, err := sshServerCmd(ctx, runTracerCmd)
+	stopServer, err := sshServerCmd(ctx, runTracerCmd, &wg)
 	if err != nil {
 		return func() {}, &wg, err
 	}
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd1, defaultServerHost, runTracerCmd)
-	}()
-	go printCmdOut(out1, defaultServerHost)
 
 	stopClient, err := sshClientCmd(ctx, runTracerCmd, &wg)
 	if err != nil {
@@ -464,8 +441,8 @@ func prepareTracer(ctx context.Context, method string) (func(), *sync.WaitGroup,
 	}
 
 	clean := func() {
-		cmd1.Process.Signal(os.Interrupt)
 		stopClient()
+		stopServer()
 	}
 	return clean, &wg, nil
 }
@@ -521,35 +498,47 @@ func runLatency(ctx context.Context) error {
 }
 
 func cleanupDocker(ctx context.Context) error {
-	wg := sync.WaitGroup{}
+	gwg := sync.WaitGroup{}
 
+	gwg.Add(1)
 	go func() {
+		defer gwg.Done()
+
+		wg := sync.WaitGroup{}
 		_, err := sshClientCmd(ctx, pruneDocker, &wg)
 		if err != nil {
 			log.Println(err)
 		}
+		wg.Wait()
+
+		wg = sync.WaitGroup{}
 		_, err = sshClientCmd(ctx, restartDocker, &wg)
 		if err != nil {
 			log.Println(err)
 		}
+		wg.Wait()
 	}()
 
-	wg.Add(1)
+	gwg.Add(1)
 	go func() {
-		defer wg.Done()
-		c3, _, err := sshServerCmd(ctx, pruneDocker)
+		defer gwg.Done()
+
+		wg := sync.WaitGroup{}
+		_, err := sshServerCmd(ctx, pruneDocker, &wg)
 		if err != nil {
 			log.Println(err)
 		}
-		c3.Wait()
-		c4, _, err := sshServerCmd(ctx, restartDocker)
+		wg.Wait()
+
+		wg = sync.WaitGroup{}
+		_, err = sshServerCmd(ctx, restartDocker, &wg)
 		if err != nil {
 			log.Println(err)
 		}
-		c4.Wait()
+		wg.Wait()
 	}()
 
-	wg.Wait()
+	gwg.Wait()
 	return nil
 }
 
