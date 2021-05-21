@@ -106,40 +106,45 @@ func sshCmd(ctx context.Context, host string, cmd string) (*exec.Cmd, io.ReadClo
 	return c, stdout, nil
 }
 
-func sshClientCmd(ctx context.Context, cmd string, wg *sync.WaitGroup) (func(), error) {
-	ecmd, out, err := sshCmd(ctx, defaultClientHost, cmd)
-	if err != nil {
-		return func() {}, err
+func sshCmdOnMultiHosts(ctx context.Context, cmd string, hosts []string, wg *sync.WaitGroup) (func(), error) {
+	ecmds := make([]*exec.Cmd, 0, len(hosts))
+	for _, host := range hosts {
+		ecmd, out, err := sshCmd(ctx, host, cmd)
+		if err != nil {
+			return func() {}, err
+		}
+		ecmds = append(ecmds, ecmd)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			waitCmd(ecmd, host, cmd)
+		}()
+		go printCmdOut(out, host)
 	}
-	stop := func() {
-		ecmd.Process.Signal(os.Interrupt)
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		waitCmd(ecmd, defaultClientHost, cmd)
-	}()
-	go printCmdOut(out, defaultClientHost)
 
-	return stop, err
+	stop := func() {
+		for _, ecmd := range ecmds {
+			ecmd.Process.Signal(os.Interrupt)
+		}
+	}
+
+	return stop, nil
+}
+
+func sshClientCmd(ctx context.Context, cmd string, wg *sync.WaitGroup) (func(), error) {
+	if len(ctnrHostVars) > 1 {
+		return sshCmdOnMultiHosts(ctx, cmd, ctnrHostVars, wg)
+	}
+	hosts := []string{defaultClientHost}
+	return sshCmdOnMultiHosts(ctx, cmd, hosts, wg)
 }
 
 func sshServerCmd(ctx context.Context, cmd string, wg *sync.WaitGroup) (func(), error) {
-	ecmd, out, err := sshCmd(ctx, defaultServerHost, cmd)
-	if err != nil {
-		return func() {}, err
+	if len(ctnrHostVars) > 1 {
+		return sshCmdOnMultiHosts(ctx, cmd, ctnrHostVars, wg)
 	}
-	stop := func() {
-		ecmd.Process.Signal(os.Interrupt)
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		waitCmd(ecmd, defaultServerHost, cmd)
-	}()
-	go printCmdOut(out, defaultServerHost)
-
-	return stop, err
+	hosts := []string{defaultServerHost}
+	return sshCmdOnMultiHosts(ctx, cmd, hosts, wg)
 }
 
 func waitCmd(c *exec.Cmd, host, cmd string) {
