@@ -105,8 +105,22 @@ func sshCmd(ctx context.Context, host string, cmd string) (*exec.Cmd, io.ReadClo
 	return c, stdout, nil
 }
 
-func sshClientCmd(ctx context.Context, cmd string) (*exec.Cmd, io.ReadCloser, error) {
-	return sshCmd(ctx, defaultClientHost, cmd)
+func sshClientCmd(ctx context.Context, cmd string, wg *sync.WaitGroup) (func(), error) {
+	ecmd, out, err := sshCmd(ctx, defaultClientHost, cmd)
+	if err != nil {
+		return func() {}, err
+	}
+	stop := func() {
+		ecmd.Process.Signal(os.Interrupt)
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		waitCmd(ecmd, defaultClientHost, cmd)
+	}()
+	go printCmdOut(out, defaultClientHost)
+
+	return stop, err
 }
 
 func sshServerCmd(ctx context.Context, cmd string) (*exec.Cmd, io.ReadCloser, error) {
@@ -151,17 +165,11 @@ func runTracer(ctx context.Context, period time.Duration) error {
 	}()
 	go printCmdOut(out3, defaultServerHost)
 
-	cmd4, out4, err := sshClientCmd(ctx, tracerCmd)
+	stop, err := sshClientCmd(ctx, tracerCmd, &wg)
 	if err != nil {
 		return err
 	}
-	defer cmd4.Process.Signal(os.Interrupt)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd4, defaultClientHost, runTracerCmd)
-	}()
-	go printCmdOut(out4, defaultClientHost)
+	defer stop()
 
 	// wait until tracer has finished
 	wg.Wait()
@@ -184,21 +192,15 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	// wait server
 	time.Sleep(5 * time.Second)
 
-	wg.Add(1)
 	clientCmd := fmt.Sprintf(connperfClientCmd, connperfClientFlag)
-	cmd2, out2, err := sshClientCmd(ctx, clientCmd)
+	stop, err := sshClientCmd(ctx, clientCmd, &wg)
 	if err != nil {
 		return err
 	}
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd2, defaultClientHost, clientCmd)
-	}()
-	go printCmdOut(out2, defaultClientHost)
 
 	cleanup := func() {
 		sshServerCmd(ctx, killConnperfCmd)
-		cmd2.Process.Signal(os.Interrupt)
+		stop()
 	}
 
 	// wait client
@@ -270,21 +272,14 @@ func runCPULoadServerCtnrsEach(ctx context.Context, containers int, connperfClie
 	// wait server
 	time.Sleep(5*time.Second + time.Duration(100*containers)*time.Millisecond)
 
-	wg.Add(1)
 	clientCmd := fmt.Sprintf(spawnCtnrClientCmd1, connperfClientFlag)
-	cmd2, out2, err := sshClientCmd(ctx, clientCmd)
+	stop, err := sshClientCmd(ctx, clientCmd, &wg)
 	if err != nil {
 		return err
 	}
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd2, defaultClientHost, clientCmd)
-	}()
-	go printCmdOut(out2, defaultClientHost)
-
 	cleanup := func() {
 		sshServerCmd(ctx, killSpawnCtnrCmd)
-		cmd2.Process.Signal(os.Interrupt)
+		stop()
 	}
 
 	// wait client
@@ -317,21 +312,15 @@ func runCPULoadClientCtnrsEach(ctx context.Context, containers int, connperfClie
 	// wait server
 	time.Sleep(5 * time.Second)
 
-	wg.Add(1)
 	spawnCtnrClientCmd := fmt.Sprintf(spawnCtnrClientCmd2, containers, connperfClientFlag)
-	cmd2, out2, err := sshClientCmd(ctx, spawnCtnrClientCmd)
+	_, err = sshClientCmd(ctx, spawnCtnrClientCmd, &wg)
 	if err != nil {
 		return err
 	}
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd2, defaultClientHost, spawnCtnrClientCmd)
-	}()
-	go printCmdOut(out2, defaultClientHost)
 
 	cleanup := func() {
-		sshClientCmd(ctx, killSpawnCtnrCmd) // kill client
-		cmd1.Process.Signal(os.Interrupt)   // kill server
+		sshClientCmd(ctx, killSpawnCtnrCmd, &wg) // kill client
+		cmd1.Process.Signal(os.Interrupt)        // kill server
 	}
 
 	// wait client
@@ -426,6 +415,7 @@ func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) err
 	if err != nil {
 		return err
 	}
+	defer cmd3.Process.Signal(os.Interrupt) // server kill
 
 	wg.Add(1)
 	go func() {
@@ -438,19 +428,11 @@ func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) err
 	time.Sleep(5 * time.Second)
 
 	clientCmd := fmt.Sprintf(connperfClientCmd, connperfClientFlag)
-	cmd4, out4, err := sshClientCmd(ctx, clientCmd)
+	stop, err := sshClientCmd(ctx, clientCmd, &wg)
 	if err != nil {
 		return err
 	}
-	defer cmd4.Process.Signal(os.Interrupt)
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd4, defaultClientHost, clientCmd)
-		cmd3.Process.Signal(os.Interrupt) // server kill
-	}()
-	go printCmdOut(out4, defaultClientHost)
+	defer stop()
 
 	// wait until connperf server and client have finished
 	wg.Wait()
@@ -476,20 +458,14 @@ func prepareTracer(ctx context.Context, method string) (func(), *sync.WaitGroup,
 	}()
 	go printCmdOut(out1, defaultServerHost)
 
-	wg.Add(1)
-	cmd2, out2, err := sshClientCmd(ctx, runTracerCmd)
+	stopClient, err := sshClientCmd(ctx, runTracerCmd, &wg)
 	if err != nil {
 		return func() {}, &wg, err
 	}
-	go func() {
-		defer wg.Done()
-		waitCmd(cmd2, defaultClientHost, runTracerCmd)
-	}()
-	go printCmdOut(out2, defaultClientHost)
 
 	clean := func() {
 		cmd1.Process.Signal(os.Interrupt)
-		cmd2.Process.Signal(os.Interrupt)
+		stopClient()
 	}
 	return clean, &wg, nil
 }
@@ -547,19 +523,15 @@ func runLatency(ctx context.Context) error {
 func cleanupDocker(ctx context.Context) error {
 	wg := sync.WaitGroup{}
 
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
-		c1, _, err := sshClientCmd(ctx, pruneDocker)
+		_, err := sshClientCmd(ctx, pruneDocker, &wg)
 		if err != nil {
 			log.Println(err)
 		}
-		c1.Wait()
-		c2, _, err := sshClientCmd(ctx, restartDocker)
+		_, err = sshClientCmd(ctx, restartDocker, &wg)
 		if err != nil {
 			log.Println(err)
 		}
-		c2.Wait()
 	}()
 
 	wg.Add(1)
