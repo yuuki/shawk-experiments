@@ -16,8 +16,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -132,7 +130,7 @@ func sshCmdOnMultiHosts(ctx context.Context, cmd string, hosts []string, wg *syn
 }
 
 func sshClientCmd(ctx context.Context, cmd string, wg *sync.WaitGroup) (func(), error) {
-	if len(ctnrHostVars) > 1 {
+	if len(ctnrHostVars) > 1 && spawnCtnrFlavor == "client" {
 		return sshCmdOnMultiHosts(ctx, cmd, ctnrHostVars, wg)
 	}
 	hosts := []string{defaultClientHost}
@@ -140,7 +138,7 @@ func sshClientCmd(ctx context.Context, cmd string, wg *sync.WaitGroup) (func(), 
 }
 
 func sshServerCmd(ctx context.Context, cmd string, wg *sync.WaitGroup) (func(), error) {
-	if len(ctnrHostVars) > 1 {
+	if len(ctnrHostVars) > 1 && spawnCtnrFlavor == "server" {
 		return sshCmdOnMultiHosts(ctx, cmd, ctnrHostVars, wg)
 	}
 	hosts := []string{defaultServerHost}
@@ -335,14 +333,7 @@ func runCPULoadClientCtnrsEach(ctx context.Context, containers int, connperfClie
 
 func runCPULoadCtnrsOnMultiHosts(ctx context.Context, connections int) error {
 	ctnrHosts := len(ctnrHostVars)
-	connectionsPerHost := connections / ctnrHosts
-	eg, ctx := errgroup.WithContext(ctx)
-	for i := 0; i < ctnrHosts; i++ {
-		eg.Go(func() error {
-			return runCPULoadCtnrs(ctx, connectionsPerHost)
-		})
-	}
-	return eg.Wait()
+	return runCPULoadCtnrs(ctx, connections/ctnrHosts)
 }
 
 func runCPULoadCtnrs(ctx context.Context, connections int) error {
