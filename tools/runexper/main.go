@@ -33,7 +33,7 @@ const (
 	runTracerPeriod        = 30 * time.Second
 	connperfPersistentRate = 5
 
-	connectionsForCtnrs = 10000
+	connectionsForCtnrs = 30000
 
 	connperfServerCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf serve -l 0.0.0.0:9100"
 	connperfClientCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf connect %s --show-only-results 10.0.150.2:9100"
