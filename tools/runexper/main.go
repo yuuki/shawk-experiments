@@ -38,7 +38,7 @@ const (
 	connperfServerCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf serve -l 0.0.0.0:9100"
 	connperfClientCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf connect %s --show-only-results 10.0.150.2:9100"
 	spawnCtnrServerCmd1 = "./spawnctnr -flavor server -containers %d -host-network"
-	spawnCtnrClientCmd1 = "./connperf connect %s --show-only-results $(curl -sS http://10.0.150.2:8080/hostports)"
+	spawnCtnrClientCmd1 = "./connperf connect %s --show-only-results"
 	spawnCtnrServerCmd2 = connperfServerCmd
 	spawnCtnrClientCmd2 = "./spawnctnr -flavor client -containers %d -host-network -client-cmd 'connect %s --show-only-results 10.0.150.2:9100'"
 	runTracerCmd        = "sudo GOMAXPROCS=1 taskset -a -c 4-5 ./runtracer -method all"
@@ -85,6 +85,15 @@ func init() {
 		ctnrNumVars = append(ctnrNumVars, i)
 	}
 	ctnrHostVars = strings.Split(ctnrHosts, ",")
+}
+
+func spawnCtnrConnperfClientCmd1(flag string) string {
+	var targets []string
+	for _, host := range ctnrHostVars {
+		targets = append(targets,
+			fmt.Sprintf("$(curl -sS http://%s:8080/hostports)", host))
+	}
+	return spawnCtnrClientCmd1 + " " + strings.Join(targets, " ")
 }
 
 func sshCmd(ctx context.Context, host string, cmd string) (*exec.Cmd, io.ReadCloser, error) {
@@ -272,7 +281,7 @@ func runCPULoadServerCtnrsEach(ctx context.Context, containers int, connperfClie
 	// wait server
 	time.Sleep(5*time.Second + time.Duration(100*containers)*time.Millisecond)
 
-	clientCmd := fmt.Sprintf(spawnCtnrClientCmd1, connperfClientFlag)
+	clientCmd := spawnCtnrConnperfClientCmd1(connperfClientFlag)
 	stop, err := sshClientCmd(ctx, clientCmd, &wg)
 	if err != nil {
 		return err
