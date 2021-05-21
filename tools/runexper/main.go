@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -31,6 +33,8 @@ const (
 
 	runTracerPeriod        = 30 * time.Second
 	connperfPersistentRate = 5
+
+	connectionsForCtnrs = 10000
 
 	connperfServerCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf serve -l 0.0.0.0:9100"
 	connperfClientCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf connect %s --show-only-results 10.0.150.2:9100"
@@ -53,6 +57,7 @@ var (
 	protocol        string
 	connNumVars     []int
 	ctnrNumVars     []int
+	ctnrHostVars    []string
 	bpfProf         bool
 )
 
@@ -67,6 +72,8 @@ func init() {
 	flag.StringVar(&connNums, "conn-vars", "5000,10000,15000,20000", "variants of the number of connections")
 	var ctnrNums string
 	flag.StringVar(&ctnrNums, "ctnr-vars", "200,400,600,800,1000", "variants of the number of containers")
+	var ctnrHosts string
+	flag.StringVar(&ctnrHosts, "ctnr-hosts", "", "variants of the hostname or ipaddrs of hosts")
 	flag.BoolVar(&bpfProf, "bpf-profile", false, "bpf prof for conntop")
 	flag.Parse()
 
@@ -78,6 +85,7 @@ func init() {
 		i, _ := strconv.Atoi(s)
 		ctnrNumVars = append(ctnrNumVars, i)
 	}
+	ctnrHostVars = strings.Split(ctnrHosts, ",")
 }
 
 func sshCmd(ctx context.Context, host string, cmd string) (*exec.Cmd, io.ReadCloser, error) {
@@ -340,9 +348,19 @@ func runCPULoadClientCtnrsEach(ctx context.Context, containers int, connperfClie
 	return nil
 }
 
-func runCPULoadCtnrs(ctx context.Context) error {
-	connections := 10000
+func runCPULoadCtnrsOnMultiHosts(ctx context.Context, connections int) error {
+	ctnrHosts := len(ctnrHostVars)
+	connectionsPerHost := connections / ctnrHosts
+	eg, ctx := errgroup.WithContext(ctx)
+	for i := 0; i < ctnrHosts; i++ {
+		eg.Go(func() error {
+			return runCPULoadCtnrs(ctx, connectionsPerHost)
+		})
+	}
+	return eg.Wait()
+}
 
+func runCPULoadCtnrs(ctx context.Context, connections int) error {
 	if protocol == "all" || protocol == "tcp" {
 		if protoFlavor == "all" || protoFlavor == "ephemeral" {
 			for _, containers := range ctnrNumVars {
@@ -587,7 +605,11 @@ func run() int {
 		if err := cleanupDocker(ctx); err != nil {
 			return exitCodeErr
 		}
-		err = runCPULoadCtnrs(ctx)
+		if len(ctnrHostVars) > 1 {
+			err = runCPULoadCtnrsOnMultiHosts(ctx, connectionsForCtnrs)
+		} else {
+			err = runCPULoadCtnrs(ctx, connectionsForCtnrs)
+		}
 	case experFlavorLatency:
 		err = runLatency(ctx)
 	default:
