@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -545,7 +546,7 @@ func cleanupDocker(ctx context.Context) error {
 func run() int {
 	sig := make(chan os.Signal, 1)
 	defer close(sig)
-	signal.Notify(sig, os.Interrupt, os.Kill)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
