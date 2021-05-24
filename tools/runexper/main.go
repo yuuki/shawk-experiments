@@ -93,7 +93,8 @@ func spawnCtnrConnperfClientCmd1(flag string) string {
 		targets = append(targets,
 			fmt.Sprintf("$(curl -sS http://%s:8080/hostports)", host))
 	}
-	return spawnCtnrClientCmd1 + " " + strings.Join(targets, " ")
+	joinedTargets := strings.Join(targets, " ")
+	return strings.Join([]string{spawnCtnrClientCmd1, flag, joinedTargets}, " ")
 }
 
 func sshCmd(ctx context.Context, host string, cmd string) (*exec.Cmd, io.ReadCloser, error) {
