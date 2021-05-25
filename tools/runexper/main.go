@@ -26,14 +26,18 @@ const (
 	defaultServerHost = "10.0.150.2"
 	defaultHostUser   = "ubuntu"
 
-	experFlavorCPULoad      = "cpu-load"
-	experFlavorCPULoadCtnrs = "cpu-load-ctnrs"
-	experFlavorLatency      = "latency"
+	experFlavorCPULoad            = "cpu-load"
+	experFlavorCPULoadCtnrs       = "cpu-load-ctnrs"
+	experFlavorCPULoadMultiLPorts = "cpu-load-multi-lports"
+	experFlavorLatency            = "latency"
 
 	runTracerPeriod        = 30 * time.Second
 	connperfPersistentRate = 5
 
 	connectionsForCtnrs = 10000
+	rateForMultiLports  = 10000
+
+	defaultStartingPort = 10001
 
 	spawnCtnrServerCmd1 = "./spawnctnr -flavor server -containers %d -host-network"
 	spawnCtnrClientCmd1 = "./connperf connect --show-only-results --merge-results-each-host"
@@ -54,6 +58,7 @@ var (
 	connNumVars     []int
 	ctnrNumVars     []int
 	ctnrHostVars    []string
+	multiLPortsVars []int
 	bpfProf         bool
 )
 
@@ -70,6 +75,8 @@ func init() {
 	flag.StringVar(&ctnrNums, "ctnr-vars", "200,400,600,800,1000", "variants of the number of containers")
 	var ctnrHosts string
 	flag.StringVar(&ctnrHosts, "ctnr-hosts", "", "variants of the hostname or ipaddrs of hosts")
+	var multiLPorts string
+	flag.StringVar(&multiLPorts, "multilports-vars", "2000,4000,6000,8000,10000", "variants of the number of multi listening ports")
 	flag.BoolVar(&bpfProf, "bpf-profile", false, "bpf prof for conntop")
 	flag.Parse()
 
@@ -82,11 +89,23 @@ func init() {
 		ctnrNumVars = append(ctnrNumVars, i)
 	}
 	ctnrHostVars = strings.Split(ctnrHosts, ",")
+	for _, s := range strings.Split(multiLPorts, ",") {
+		i, _ := strconv.Atoi(s)
+		multiLPortsVars = append(multiLPortsVars, i)
+	}
+}
+
+func genLPortsSlice(num int) []int {
+	lports := make([]int, 0, num)
+	for i := 0; i < num; i++ {
+		lports = append(lports, defaultStartingPort+i)
+	}
+	return lports
 }
 
 func connperfClientCmd(addrs []string, flag string) string {
 	joinedAddrs := strings.Join(addrs, " ")
-	return fmt.Sprintf("sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf connect %s --show-only-results --merge-results-each-host -l %s", flag, joinedAddrs)
+	return fmt.Sprintf("sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf connect %s --show-only-results --merge-results-each-host %s", flag, joinedAddrs)
 }
 
 func connperfServerCmd(addrs []string) string {
@@ -94,11 +113,25 @@ func connperfServerCmd(addrs []string) string {
 	return fmt.Sprintf("sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf serve -l %s", joinedAddrs)
 }
 
-func connperfDefaultClientCmd(flag string) string {
+func connperfDefaultClientCmd(flag string, lportNum int) string {
+	if experFlavor == experFlavorCPULoadMultiLPorts {
+		addrs := make([]string, 0, lportNum)
+		for _, lport := range genLPortsSlice(lportNum) {
+			addrs = append(addrs, fmt.Sprintf("%s:%d", defaultServerHost, lport))
+		}
+		return connperfClientCmd(addrs, flag)
+	}
 	return connperfClientCmd([]string{defaultServerHost}, flag)
 }
 
-func connperfDefaultServerCmd() string {
+func connperfDefaultServerCmd(lportNum int) string {
+	if experFlavor == experFlavorCPULoadMultiLPorts {
+		addrs := make([]string, 0, lportNum)
+		for _, lport := range genLPortsSlice(lportNum) {
+			addrs = append(addrs, fmt.Sprintf("%s:%d", defaultServerHost, lport))
+		}
+		return connperfServerCmd(addrs)
+	}
 	return connperfServerCmd([]string{defaultServerHost})
 }
 
@@ -213,9 +246,9 @@ func runTracer(ctx context.Context, period time.Duration) error {
 	return nil
 }
 
-func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
+func runCPULoadEach(ctx context.Context, connperfClientFlag string, lportNum int) error {
 	wg := sync.WaitGroup{}
-	_, err := sshServerCmd(ctx, connperfDefaultServerCmd(), &wg)
+	_, err := sshServerCmd(ctx, connperfDefaultServerCmd(lportNum), &wg)
 	if err != nil {
 		return err
 	}
@@ -223,7 +256,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	// wait server
 	time.Sleep(5 * time.Second)
 
-	stop, err := sshClientCmd(ctx, connperfDefaultClientCmd(connperfClientFlag), &wg)
+	stop, err := sshClientCmd(ctx, connperfDefaultClientCmd(connperfClientFlag, lportNum), &wg)
 	if err != nil {
 		return err
 	}
@@ -255,7 +288,7 @@ func runCPULoad(ctx context.Context) error {
 			for _, rate := range variants {
 				flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
 				log.Println("parameter", flag)
-				if err := runCPULoadEach(ctx, flag); err != nil {
+				if err := runCPULoadEach(ctx, flag, 1); err != nil {
 					return err
 				}
 			}
@@ -264,7 +297,7 @@ func runCPULoad(ctx context.Context) error {
 			for _, conns := range variants {
 				flag := fmt.Sprintf("--proto tcp --flavor persistent --rate %d --connections %d --duration 1200s", connperfPersistentRate, conns)
 				log.Println("parameter", flag)
-				if err := runCPULoadEach(ctx, flag); err != nil {
+				if err := runCPULoadEach(ctx, flag, 1); err != nil {
 					return err
 				}
 			}
@@ -275,7 +308,46 @@ func runCPULoad(ctx context.Context) error {
 			for _, rate := range variants {
 				flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
 				log.Println("parameter", flag)
-				if err := runCPULoadEach(ctx, flag); err != nil {
+				if err := runCPULoadEach(ctx, flag, 1); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func runCPULoadMultiLPorts(ctx context.Context) error {
+	variants := multiLPortsVars
+
+	if protocol == "all" || protocol == "tcp" {
+		if protoFlavor == "all" || protoFlavor == "ephemeral" {
+			for _, portNum := range variants {
+				flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s",
+					rateForMultiLports/portNum)
+				log.Println("parameter", flag)
+				if err := runCPULoadEach(ctx, flag, portNum); err != nil {
+					return err
+				}
+			}
+		}
+		if protoFlavor == "all" || protoFlavor == "persistent" {
+			for _, portNum := range variants {
+				flag := fmt.Sprintf("--proto tcp --flavor persistent --rate %d --connections %d --duration 1200s", connperfPersistentRate, rateForMultiLports/portNum)
+				log.Println("parameter", flag)
+				if err := runCPULoadEach(ctx, flag, portNum); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if protocol == "all" || protocol == "udp" {
+		if protoFlavor == "all" || protoFlavor == "udp" {
+			for _, portNum := range variants {
+				flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rateForMultiLports/portNum)
+				log.Println("parameter", flag)
+				if err := runCPULoadEach(ctx, flag, portNum); err != nil {
 					return err
 				}
 			}
@@ -322,7 +394,7 @@ func runCPULoadServerCtnrsEach(ctx context.Context, containers int, connperfClie
 
 func runCPULoadClientCtnrsEach(ctx context.Context, containers int, connperfClientFlag string) error {
 	var wg sync.WaitGroup
-	stopServer, err := sshServerCmd(ctx, connperfDefaultServerCmd(), &wg)
+	stopServer, err := sshServerCmd(ctx, connperfDefaultServerCmd(1), &wg)
 	if err != nil {
 		return err
 	}
@@ -422,7 +494,7 @@ func runCPULoadCtnrs(ctx context.Context, connections int) error {
 func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) error {
 	var wg sync.WaitGroup
 
-	stopServer, err := sshServerCmd(ctx, connperfDefaultServerCmd(), &wg)
+	stopServer, err := sshServerCmd(ctx, connperfDefaultServerCmd(1), &wg)
 	if err != nil {
 		return err
 	}
@@ -431,7 +503,7 @@ func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) err
 	// wait server
 	time.Sleep(5 * time.Second)
 
-	stop, err := sshClientCmd(ctx, connperfDefaultClientCmd(connperfClientFlag), &wg)
+	stop, err := sshClientCmd(ctx, connperfDefaultClientCmd(connperfClientFlag, 1), &wg)
 	if err != nil {
 		return err
 	}
@@ -591,6 +663,8 @@ func run() int {
 		} else {
 			err = runCPULoadCtnrs(ctx, connectionsForCtnrs)
 		}
+	case experFlavorCPULoadMultiLPorts:
+		err = runCPULoadMultiLPorts(ctx)
 	case experFlavorLatency:
 		err = runLatency(ctx)
 	default:
