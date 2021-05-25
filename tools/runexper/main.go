@@ -35,11 +35,8 @@ const (
 
 	connectionsForCtnrs = 10000
 
-	connperfServerCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf serve -l 0.0.0.0:9100"
-	connperfClientCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf connect %s --show-only-results 10.0.150.2:9100"
 	spawnCtnrServerCmd1 = "./spawnctnr -flavor server -containers %d -host-network"
 	spawnCtnrClientCmd1 = "./connperf connect --show-only-results --merge-results-each-host"
-	spawnCtnrServerCmd2 = connperfServerCmd
 	spawnCtnrClientCmd2 = "./spawnctnr -flavor client -containers %d -host-network -client-cmd 'connect %s --show-only-results 10.0.150.2:9100'"
 	runTracerCmd        = "sudo GOMAXPROCS=1 taskset -a -c 4-5 ./runtracer -method all"
 	killConnperfCmd     = "sudo pkill -INT connperf"
@@ -85,6 +82,24 @@ func init() {
 		ctnrNumVars = append(ctnrNumVars, i)
 	}
 	ctnrHostVars = strings.Split(ctnrHosts, ",")
+}
+
+func connperfClientCmd(addrs []string, flag string) string {
+	joinedAddrs := strings.Join(addrs, " ")
+	return fmt.Sprintf("sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf connect %s --show-only-results --merge-results-each-host -l %s", flag, joinedAddrs)
+}
+
+func connperfServerCmd(addrs []string) string {
+	joinedAddrs := strings.Join(addrs, ",")
+	return fmt.Sprintf("sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf serve -l %s", joinedAddrs)
+}
+
+func connperfDefaultClientCmd(flag string) string {
+	return connperfClientCmd([]string{defaultServerHost}, flag)
+}
+
+func connperfDefaultServerCmd() string {
+	return connperfServerCmd([]string{defaultServerHost})
 }
 
 func spawnCtnrConnperfClientCmd1(flag string) string {
@@ -200,7 +215,7 @@ func runTracer(ctx context.Context, period time.Duration) error {
 
 func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	wg := sync.WaitGroup{}
-	_, err := sshServerCmd(ctx, connperfServerCmd, &wg)
+	_, err := sshServerCmd(ctx, connperfDefaultServerCmd(), &wg)
 	if err != nil {
 		return err
 	}
@@ -208,8 +223,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string) error {
 	// wait server
 	time.Sleep(5 * time.Second)
 
-	clientCmd := fmt.Sprintf(connperfClientCmd, connperfClientFlag)
-	stop, err := sshClientCmd(ctx, clientCmd, &wg)
+	stop, err := sshClientCmd(ctx, connperfDefaultClientCmd(connperfClientFlag), &wg)
 	if err != nil {
 		return err
 	}
@@ -308,7 +322,7 @@ func runCPULoadServerCtnrsEach(ctx context.Context, containers int, connperfClie
 
 func runCPULoadClientCtnrsEach(ctx context.Context, containers int, connperfClientFlag string) error {
 	var wg sync.WaitGroup
-	stopServer, err := sshServerCmd(ctx, spawnCtnrServerCmd2, &wg)
+	stopServer, err := sshServerCmd(ctx, connperfDefaultServerCmd(), &wg)
 	if err != nil {
 		return err
 	}
@@ -408,7 +422,7 @@ func runCPULoadCtnrs(ctx context.Context, connections int) error {
 func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) error {
 	var wg sync.WaitGroup
 
-	stopServer, err := sshServerCmd(ctx, connperfServerCmd, &wg)
+	stopServer, err := sshServerCmd(ctx, connperfDefaultServerCmd(), &wg)
 	if err != nil {
 		return err
 	}
@@ -417,8 +431,7 @@ func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) err
 	// wait server
 	time.Sleep(5 * time.Second)
 
-	clientCmd := fmt.Sprintf(connperfClientCmd, connperfClientFlag)
-	stop, err := sshClientCmd(ctx, clientCmd, &wg)
+	stop, err := sshClientCmd(ctx, connperfDefaultClientCmd(connperfClientFlag), &wg)
 	if err != nil {
 		return err
 	}
