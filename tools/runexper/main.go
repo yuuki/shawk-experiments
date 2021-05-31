@@ -43,7 +43,7 @@ const (
 	spawnCtnrClientCmd1 = "./connperf connect --show-only-results --merge-results-each-host"
 	spawnCtnrClientCmd2 = "./spawnctnr -flavor client -containers %d -host-network -client-cmd 'connect %s --show-only-results 10.0.150.2:9100'"
 	runTracerCmd        = "sudo GOMAXPROCS=1 taskset -a -c 4-5 ./runtracer -method all"
-	killConnperfCmd     = "sudo pkill -INT connperf"
+	killConnperfCmd     = "sudo pkill -TERM connperf" // could not stop connperf with SIGINT in multi-lports
 	killSpawnCtnrCmd    = "sudo pkill -INT spawnctnr"
 
 	pruneDocker   = "docker system prune -f"
