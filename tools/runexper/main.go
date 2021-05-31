@@ -7,10 +7,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,6 +50,8 @@ const (
 
 	pruneDocker   = "docker system prune -f"
 	restartDocker = "sudo systemctl restart docker"
+
+	tmpDir = "./tmp"
 )
 
 var (
@@ -103,15 +107,58 @@ func genLPortsSlice(num int) []int {
 	return lports
 }
 
+func saveTmpFile(content string) (string, error) {
+	tmpfile, err := ioutil.TempFile(tmpDir, "addrs.*.txt")
+	if err != nil {
+		return "", err
+	}
+	defer tmpfile.Close()
+	_, err = tmpfile.WriteString(content)
+	if err != nil {
+		return tmpfile.Name(), err
+	}
+
+	return tmpfile.Name(), nil
+}
+
+const (
+	connperfConnectPrefixCmd = "sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf connect --show-only-results --merge-results-each-host"
+	connperfServePrefixCmd   = "sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf serve"
+)
+
 func connperfClientCmd(addrs []string, flag string) string {
 	joinedAddrs := strings.Join(addrs, " ")
-	return fmt.Sprintf("sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf connect %s --show-only-results --merge-results-each-host %s", flag, joinedAddrs)
+	return strings.Join([]string{connperfConnectPrefixCmd, flag, joinedAddrs}, " ")
 }
 
 func connperfServerCmd(addrs []string, protocol string) string {
 	joinedAddrs := strings.Join(addrs, ",")
-	return fmt.Sprintf("sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf serve --protocol %s -l %s",
+	return connperfServePrefixCmd + " " + fmt.Sprintf("--protocol %s -l %s",
 		protocol, joinedAddrs)
+}
+
+func connperfClientCmdWithAddrsFile(addrs []string, flag string) string {
+	path, err := saveTmpFile(strings.Join(addrs, " "))
+	if err != nil {
+		log.Fatal(err)
+	}
+	destPath := filepath.Base(path)
+	if err := scpCmd(defaultClientHost, path, destPath); err != nil {
+		log.Fatal(err)
+	}
+	return strings.Join([]string{connperfConnectPrefixCmd, flag, "--addrs-file", destPath}, " ")
+}
+
+func connperfServerCmdWithAddrsFile(addrs []string, protocol string) string {
+	path, err := saveTmpFile(strings.Join(addrs, " "))
+	if err != nil {
+		log.Fatal(err)
+	}
+	destPath := filepath.Base(path)
+	if err := scpCmd(defaultServerHost, path, destPath); err != nil {
+		log.Fatal(err)
+	}
+	return strings.Join([]string{connperfServePrefixCmd, "--protocol", protocol, "--listen-addrs-file", destPath}, " ")
 }
 
 func connperfDefaultClientCmd(flag string, lportNum int) string {
@@ -120,7 +167,7 @@ func connperfDefaultClientCmd(flag string, lportNum int) string {
 		for _, lport := range genLPortsSlice(lportNum) {
 			addrs = append(addrs, fmt.Sprintf("%s:%d", defaultServerHost, lport))
 		}
-		return connperfClientCmd(addrs, flag)
+		return connperfClientCmdWithAddrsFile(addrs, flag)
 	}
 	return connperfClientCmd([]string{defaultServerHost}, flag)
 }
@@ -131,7 +178,7 @@ func connperfDefaultServerCmd(lportNum int, protocol string) string {
 		for _, lport := range genLPortsSlice(lportNum) {
 			addrs = append(addrs, fmt.Sprintf("%s:%d", defaultServerHost, lport))
 		}
-		return connperfServerCmd(addrs, protocol)
+		return connperfServerCmdWithAddrsFile(addrs, protocol)
 	}
 	return connperfServerCmd([]string{defaultServerHost}, protocol)
 }
@@ -161,6 +208,15 @@ func sshCmd(ctx context.Context, host string, cmd string) (*exec.Cmd, io.ReadClo
 		return nil, nil, err
 	}
 	return c, stdout, nil
+}
+
+func scpCmd(host string, srcFile, dstFile string) error {
+	scpCmd := strings.Fields(
+		fmt.Sprintf("scp %s %s@%s:%s", srcFile, defaultHostUser, host, dstFile),
+	)
+	c := exec.Command(scpCmd[0], scpCmd[1:]...)
+	log.Println(c.Args)
+	return c.Run()
 }
 
 func sshCmdOnMultiHosts(ctx context.Context, cmd string, hosts []string, wg *sync.WaitGroup) (func(), error) {
