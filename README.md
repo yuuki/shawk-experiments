@@ -25,10 +25,16 @@ Measuring CPU load.
 runexper -exper-flavor cpu-load
 ```
 
-Measuring latency.
+Measuring eBPF latency.
 
 ```shell-session
-runexper -exper-flavor latency
+runexper -exper-flavor cpu-load -bpf-profile
+```
+
+Measuring multiple listening ports.
+
+```shell-session
+runexper -exper-flavor cpu-load-multi-lports multilports-vars 2000,4000,6000,8000,10000
 ```
 
 ### runtracer
