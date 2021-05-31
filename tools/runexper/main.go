@@ -108,9 +108,10 @@ func connperfClientCmd(addrs []string, flag string) string {
 	return fmt.Sprintf("sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf connect %s --show-only-results --merge-results-each-host %s", flag, joinedAddrs)
 }
 
-func connperfServerCmd(addrs []string) string {
+func connperfServerCmd(addrs []string, protocol string) string {
 	joinedAddrs := strings.Join(addrs, ",")
-	return fmt.Sprintf("sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf serve -l %s", joinedAddrs)
+	return fmt.Sprintf("sudo GOMAXPROCS=4 taskset -a -c 0-3 ./connperf serve --protocol %s -l %s",
+		protocol, joinedAddrs)
 }
 
 func connperfDefaultClientCmd(flag string, lportNum int) string {
@@ -124,15 +125,15 @@ func connperfDefaultClientCmd(flag string, lportNum int) string {
 	return connperfClientCmd([]string{defaultServerHost}, flag)
 }
 
-func connperfDefaultServerCmd(lportNum int) string {
+func connperfDefaultServerCmd(lportNum int, protocol string) string {
 	if experFlavor == experFlavorCPULoadMultiLPorts {
 		addrs := make([]string, 0, lportNum)
 		for _, lport := range genLPortsSlice(lportNum) {
 			addrs = append(addrs, fmt.Sprintf("%s:%d", defaultServerHost, lport))
 		}
-		return connperfServerCmd(addrs)
+		return connperfServerCmd(addrs, protocol)
 	}
-	return connperfServerCmd([]string{defaultServerHost})
+	return connperfServerCmd([]string{defaultServerHost}, protocol)
 }
 
 func spawnCtnrConnperfClientCmd1(flag string) string {
@@ -246,9 +247,9 @@ func runTracer(ctx context.Context, period time.Duration) error {
 	return nil
 }
 
-func runCPULoadEach(ctx context.Context, connperfClientFlag string, lportNum int) error {
+func runCPULoadEach(ctx context.Context, connperfClientFlag string, lportNum int, protocol string) error {
 	wg := sync.WaitGroup{}
-	_, err := sshServerCmd(ctx, connperfDefaultServerCmd(lportNum), &wg)
+	_, err := sshServerCmd(ctx, connperfDefaultServerCmd(lportNum, protocol), &wg)
 	if err != nil {
 		return err
 	}
@@ -288,7 +289,7 @@ func runCPULoad(ctx context.Context) error {
 			for _, rate := range variants {
 				flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s", rate)
 				log.Println("parameter", flag)
-				if err := runCPULoadEach(ctx, flag, 1); err != nil {
+				if err := runCPULoadEach(ctx, flag, 1, "tcp"); err != nil {
 					return err
 				}
 			}
@@ -297,7 +298,7 @@ func runCPULoad(ctx context.Context) error {
 			for _, conns := range variants {
 				flag := fmt.Sprintf("--proto tcp --flavor persistent --rate %d --connections %d --duration 1200s", connperfPersistentRate, conns)
 				log.Println("parameter", flag)
-				if err := runCPULoadEach(ctx, flag, 1); err != nil {
+				if err := runCPULoadEach(ctx, flag, 1, "tcp"); err != nil {
 					return err
 				}
 			}
@@ -308,7 +309,7 @@ func runCPULoad(ctx context.Context) error {
 			for _, rate := range variants {
 				flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rate)
 				log.Println("parameter", flag)
-				if err := runCPULoadEach(ctx, flag, 1); err != nil {
+				if err := runCPULoadEach(ctx, flag, 1, "udp"); err != nil {
 					return err
 				}
 			}
@@ -327,7 +328,7 @@ func runCPULoadMultiLPorts(ctx context.Context) error {
 				flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 1200s",
 					rateForMultiLports/portNum)
 				log.Println("parameter", flag)
-				if err := runCPULoadEach(ctx, flag, portNum); err != nil {
+				if err := runCPULoadEach(ctx, flag, portNum, "tcp"); err != nil {
 					return err
 				}
 			}
@@ -336,7 +337,7 @@ func runCPULoadMultiLPorts(ctx context.Context) error {
 			for _, portNum := range variants {
 				flag := fmt.Sprintf("--proto tcp --flavor persistent --rate %d --connections %d --duration 1200s", connperfPersistentRate, rateForMultiLports/portNum)
 				log.Println("parameter", flag)
-				if err := runCPULoadEach(ctx, flag, portNum); err != nil {
+				if err := runCPULoadEach(ctx, flag, portNum, "tcpj"); err != nil {
 					return err
 				}
 			}
@@ -347,7 +348,7 @@ func runCPULoadMultiLPorts(ctx context.Context) error {
 			for _, portNum := range variants {
 				flag := fmt.Sprintf("--proto udp --rate %d --duration 1200s", rateForMultiLports/portNum)
 				log.Println("parameter", flag)
-				if err := runCPULoadEach(ctx, flag, portNum); err != nil {
+				if err := runCPULoadEach(ctx, flag, portNum, "udp"); err != nil {
 					return err
 				}
 			}
@@ -392,9 +393,9 @@ func runCPULoadServerCtnrsEach(ctx context.Context, containers int, connperfClie
 	return nil
 }
 
-func runCPULoadClientCtnrsEach(ctx context.Context, containers int, connperfClientFlag string) error {
+func runCPULoadClientCtnrsEach(ctx context.Context, containers int, connperfClientFlag string, protocol string) error {
 	var wg sync.WaitGroup
-	stopServer, err := sshServerCmd(ctx, connperfDefaultServerCmd(1), &wg)
+	stopServer, err := sshServerCmd(ctx, connperfDefaultServerCmd(1, protocol), &wg)
 	if err != nil {
 		return err
 	}
@@ -445,7 +446,7 @@ func runCPULoadCtnrs(ctx context.Context, connections int) error {
 					}
 				}
 				if spawnCtnrFlavor == "all" || spawnCtnrFlavor == "client" {
-					if err := runCPULoadClientCtnrsEach(ctx, containers, flag); err != nil {
+					if err := runCPULoadClientCtnrsEach(ctx, containers, flag, "tcp"); err != nil {
 						return err
 					}
 				}
@@ -463,7 +464,7 @@ func runCPULoadCtnrs(ctx context.Context, connections int) error {
 					}
 				}
 				if spawnCtnrFlavor == "all" || spawnCtnrFlavor == "client" {
-					if err := runCPULoadClientCtnrsEach(ctx, containers, flag); err != nil {
+					if err := runCPULoadClientCtnrsEach(ctx, containers, flag, "tcp"); err != nil {
 						return err
 					}
 				}
@@ -482,7 +483,7 @@ func runCPULoadCtnrs(ctx context.Context, connections int) error {
 				}
 			}
 			if spawnCtnrFlavor == "all" || spawnCtnrFlavor == "client" {
-				if err := runCPULoadClientCtnrsEach(ctx, containers, flag); err != nil {
+				if err := runCPULoadClientCtnrsEach(ctx, containers, flag, "udp"); err != nil {
 					return err
 				}
 			}
@@ -491,10 +492,10 @@ func runCPULoadCtnrs(ctx context.Context, connections int) error {
 	return nil
 }
 
-func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag string) error {
+func runLatencyWithoutTracer(ctx context.Context, connperfClientFlag, protocol string) error {
 	var wg sync.WaitGroup
 
-	stopServer, err := sshServerCmd(ctx, connperfDefaultServerCmd(1), &wg)
+	stopServer, err := sshServerCmd(ctx, connperfDefaultServerCmd(1, protocol), &wg)
 	if err != nil {
 		return err
 	}
@@ -539,14 +540,14 @@ func prepareTracer(ctx context.Context, method string) (func(), *sync.WaitGroup,
 	return clean, &wg, nil
 }
 
-func runLatencyEach(ctx context.Context, connperfClientFlag string) error {
+func runLatencyEach(ctx context.Context, connperfClientFlag, protocol string) error {
 	for _, method := range []string{"snapshot-polling", "user-aggregation", "kernel-aggregation"} {
 		clean, wg, err := prepareTracer(ctx, method)
 		if err != nil {
 			return err
 		}
 
-		if err := runLatencyWithoutTracer(ctx, connperfClientFlag); err != nil {
+		if err := runLatencyWithoutTracer(ctx, connperfClientFlag, protocol); err != nil {
 			clean()
 			return err
 		}
@@ -565,10 +566,10 @@ func runLatency(ctx context.Context) error {
 		for _, rate := range variants {
 			flag := fmt.Sprintf("--proto tcp --flavor ephemeral --rate %d --duration 10s", rate)
 			log.Println("parameter", flag)
-			if err := runLatencyWithoutTracer(ctx, flag); err != nil {
+			if err := runLatencyWithoutTracer(ctx, flag, "tcp"); err != nil {
 				return err
 			}
-			if err := runLatencyEach(ctx, flag); err != nil {
+			if err := runLatencyEach(ctx, flag, "tcp"); err != nil {
 				return err
 			}
 		}
@@ -577,10 +578,10 @@ func runLatency(ctx context.Context) error {
 		for _, rate := range variants {
 			flag := fmt.Sprintf("--proto udp --rate %d --duration 10s", rate)
 			log.Println("parameter", flag)
-			if err := runLatencyWithoutTracer(ctx, flag); err != nil {
+			if err := runLatencyWithoutTracer(ctx, flag, "udp"); err != nil {
 				return err
 			}
-			if err := runLatencyEach(ctx, flag); err != nil {
+			if err := runLatencyEach(ctx, flag, "udp"); err != nil {
 				return err
 			}
 		}
