@@ -35,7 +35,7 @@ const (
 	connperfPersistentRate = 5
 
 	connectionsForCtnrs = 10000
-	rateForMultiLports  = 10000
+	rateForMultiLports  = 30000
 
 	defaultStartingPort = 10001
 
