@@ -254,7 +254,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string, lportNum int
 	}
 
 	// wait server
-	time.Sleep(5 * time.Second)
+	time.Sleep(30 * time.Second)
 
 	stop, err := sshClientCmd(ctx, connperfDefaultClientCmd(connperfClientFlag, lportNum), &wg)
 	if err != nil {
@@ -267,7 +267,7 @@ func runCPULoadEach(ctx context.Context, connperfClientFlag string, lportNum int
 	}
 
 	// wait client
-	time.Sleep(10 * time.Second)
+	time.Sleep(30 * time.Second)
 
 	if err := runTracer(ctx, runTracerPeriod); err != nil {
 		cleanup()
