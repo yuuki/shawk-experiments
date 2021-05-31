@@ -80,7 +80,7 @@ func init() {
 	var ctnrHosts string
 	flag.StringVar(&ctnrHosts, "ctnr-hosts", "", "variants of the hostname or ipaddrs of hosts")
 	var multiLPorts string
-	flag.StringVar(&multiLPorts, "multilports-vars", "2000,4000,6000,8000,10000", "variants of the number of multi listening ports")
+	flag.StringVar(&multiLPorts, "multilports-vars", "6000,7500,10000,15000,30000", "variants of the number of multi listening ports")
 	flag.BoolVar(&bpfProf, "bpf-profile", false, "bpf prof for conntop")
 	flag.Parse()
 
