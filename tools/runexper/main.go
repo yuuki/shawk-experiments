@@ -26,6 +26,7 @@ const (
 
 	defaultClientHost = "10.0.150.1"
 	defaultServerHost = "10.0.150.2"
+	defaultServerAddr = defaultServerHost + ":9100"
 	defaultHostUser   = "ubuntu"
 
 	experFlavorCPULoad            = "cpu-load"
@@ -180,7 +181,7 @@ func connperfDefaultServerCmd(lportNum int, protocol string) string {
 		}
 		return connperfServerCmdWithAddrsFile(addrs, protocol)
 	}
-	return connperfServerCmd([]string{defaultServerHost}, protocol)
+	return connperfServerCmd([]string{defaultServerAddr}, protocol)
 }
 
 func spawnCtnrConnperfClientCmd1(flag string) string {
